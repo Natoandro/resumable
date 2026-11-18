@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta
+			name="description"
+			content="Atomic store requirements, mutation IDs, clocks, and adapter responsibilities."
+		/>
+		<title>Store and ownership — resumable</title>
+		<link rel="icon" href="data:," />
+		<link rel="stylesheet" href="assets/docs.css" />
+		<link rel="stylesheet" href="assets/docs-content.css" />
+		<script src="assets/docs.js" defer></script>
+	</head>
+	<body>
+		<div class="docs-layout">
+			<main id="doc-content" class="doc-article">
+				<article>
+					<p class="doc-eyebrow">Implementation</p>
+					<h1>Store and ownership</h1>
+					<p class="lede">
+						The Store is the durable authority for execution records. Its methods are state
+						transitions, not generic row updates: each one checks its preconditions and commits all
+						related changes as a single operation.
+					</p>
+					<p class="doc-meta">
+						<span>Audience: Store adapter authors</span
+						><span>Source: <a href="../../src/store.rs">Store trait</a></span>
+					</p>
+
+					<h2 id="store-role">Store boundary</h2>
+					<p>
+						The core defines the <code>Store</code> trait and typed requests. An adapter owns the
+						database schema, transactions, query implementation, and authoritative clock. The trait
+						uses native async-compatible methods that return <code>Send</code> futures; the core is
+						statically dispatched and does not require boxed futures or <code>dyn Store</code>.
+					</p>
+					<p>
+						The Store does not own application dispatch, operation selection, authorization,
+						provider calls, or discovery of pending executions. The application decides which
+						operation closure matches a stored <code>OperationKey</code> and when a worker should
+						call <code>resume</code>.
+					</p>
+
+					<figure class="figure">
+						<svg viewBox="0 0 740 225" role="img" aria-labelledby="layers-title layers-desc">
+							<title id="layers-title">Core, adapter, and application responsibilities</title>
+							<desc id="layers-desc">
+								The application supplies dispatch, operation closures, external clients, and worker
+								scheduling. The core runner handles identity, steps, retries, and leases. A Store
+								adapter provides atomic persistence, transactions, and database clock.
+							</desc>
+							<rect class="node" x="22" y="42" width="205" height="130" rx="6"></rect>
+							<text x="124" y="70" text-anchor="middle">Application</text>
+							<text class="minor" x="124" y="99" text-anchor="middle">operation dispatch</text>
+							<text class="minor" x="124" y="119" text-anchor="middle">worker scheduling</text>
+							<text class="minor" x="124" y="139" text-anchor="middle">external effects</text>
+							<path class="line" d="M227 107h28m0 0-7-6m7 6-7 6"></path>
+							<rect class="node node-main" x="258" y="42" width="205" height="130" rx="6"></rect>
+							<text x="360" y="70" text-anchor="middle">resumable core</text>
+							<text class="minor" x="360" y="99" text-anchor="middle">execution and steps</text>
+							<text class="minor" x="360" y="119" text-anchor="middle">retry and lease rules</text>
+							<text class="minor" x="360" y="139" text-anchor="middle">typed Store requests</text>
+							<path class="line" d="M463 107h28m0 0-7-6m7 6-7 6"></path>
+							<rect class="node" x="494" y="42" width="220" height="130" rx="6"></rect>
+							<text x="604" y="70" text-anchor="middle">Store adapter</text>
+							<text class="minor" x="604" y="99" text-anchor="middle">atomic persistence</text>
+							<text class="minor" x="604" y="119" text-anchor="middle">database transactions</text>
+							<text class="minor" x="604" y="139" text-anchor="middle">authoritative clock</text>
+							<text class="label" x="360" y="205" text-anchor="middle">
+								contract boundary: typed request in, committed state out
+							</text>
+						</svg>
+						<figcaption>
+							Each layer has a narrow responsibility. The core depends on a Store implementation;
+							the adapter does not decide what an operation means.
+						</figcaption>
+					</figure>
+
+					<h2 id="atomic">Atomic transition requirements</h2>
+					<p>
+						Creation compatibility, claim, begin attempt, completion, failure, cancellation,
+						heartbeat, and purge each have to be serialized with concurrent changes. A relational
+						adapter normally uses a transaction and row locks or conditional updates. The
+						implementation mechanism can vary, but the observable outcomes cannot.
+					</p>
+					<div class="doc-table-wrap">
+						<table class="doc-table">
+							<caption>
+								Mutation preconditions and durable result
+							</caption>
+							<thead>
+								<tr>
+									<th scope="col">Mutation</th>
+									<th scope="col">Must validate</th>
+									<th scope="col">Commit as one outcome</th>
+								</tr>
+							</thead>
+							<tbody>
+								<tr>
+									<th scope="row">Create</th>
+									<td>
+										Execution ID absent, or operation and exact optional input envelope compatible
+									</td>
+									<td>
+										Insert the initial pending record; return the original on compatible duplicate,
+										conflict on mismatch
+									</td>
+								</tr>
+								<tr>
+									<th scope="row">Acquire</th>
+									<td>
+										Record is claimable, retry deadlines are due, and prior lease is absent or
+										expired
+									</td>
+									<td>Set running, issue token, increment fencing generation and revision</td>
+								</tr>
+								<tr>
+									<th scope="row">Begin step</th>
+									<td>
+										Current owner, live lease, expected revision, eligible step state and retry time
+									</td>
+									<td>Increment attempt and set the unique step to running</td>
+								</tr>
+								<tr>
+									<th scope="row">Complete step</th>
+									<td>Current owner and matching running attempt</td>
+									<td>Persist result bytes and completed status together</td>
+								</tr>
+								<tr>
+									<th scope="row">Fail step</th>
+									<td>Current owner and matching running attempt</td>
+									<td>
+										Persist diagnostic, classification, policy, deadline, step state and execution
+										state together
+									</td>
+								</tr>
+								<tr>
+									<th scope="row">Finish</th>
+									<td>Current owner; all steps complete unless cancellation was requested</td>
+									<td>Persist result with terminal status and clear lease</td>
+								</tr>
+								<tr>
+									<th scope="row">Heartbeat</th>
+									<td>Current owner and unexpired lease</td>
+									<td>Extend lease using Store time and advance revision</td>
+								</tr>
+							</tbody>
+						</table>
+					</div>
+
+					<h2 id="lease-guard">Lease guard</h2>
+					<p>
+						Every owner mutation carries a <code>LeaseGuard</code>: execution ID, worker ID, lease
+						token, fencing generation, and expected execution revision. The Store validates these as
+						a unit against the current record. A token alone is not enough: the generation
+						distinguishes successive owners, the expiry check excludes stale time windows, and the
+						revision detects intervening writes by the same owner or another authorized transition.
+					</p>
+
+					<h2 id="fencing">Fencing and leases</h2>
+					<p>
+						A live lease cannot be stolen. Once its expiry is reached according to Store time,
+						another worker may claim the execution and gets a fresh random token and a greater
+						generation. The previous owner's writes are rejected even if the old process resumes
+						after a pause.
+					</p>
+					<p>
+						Lease duration is a liveness choice, not proof that an external request stopped. If a
+						step body runs longer than its lease and no heartbeat occurs, another worker may begin a
+						replacement attempt. The Store guarantees only that one generation can mutate the
+						current record.
+					</p>
+
+					<p>
+						Every acquisition invocation has a fresh claim ID. Retrying a lost response reuses the
+						same ID, worker, and requested duration; a different invocation sees Busy even when its
+						worker matches. The execution retains its last generation after failure clears the
+						lease, so resumed work always gets a greater external fencing token.
+					</p>
+
+					<h2 id="mutation-id">Mutation IDs and lost responses</h2>
+					<p>
+						Each write request includes a random <code>MutationId</code>. The Store records the
+						request and its committed result. If the server commits and the network loses the
+						response, repeating the same mutation ID with exactly the same request returns the
+						original result—even if the lease expired after commit. Reusing that ID with different
+						request data conflicts.
+					</p>
+					<p>
+						This is request idempotency at the persistence boundary. It prevents a repeated
+						<code>begin_step</code> from incrementing attempts twice and lets the runner learn
+						whether completion committed. It is separate from external idempotency keys, which
+						identify a provider effect. Mutation receipts need a retention policy long enough to
+						cover ambiguous retries; purging an execution can remove the history needed for later
+						resume.
+					</p>
+
+					<h2 id="clock">Clock authority</h2>
+					<p>
+						The Store clock decides whether a lease is expired and whether a retry is eligible. An
+						adapter must read its authoritative time as part of the atomic mutation; PostgreSQL
+						adapters would typically use a database time function rather than trust the worker's
+						clock. The reference store accepts a <code>Clock</code>, including a
+						<code>ManualClock</code> for deterministic scenarios.
+					</p>
+					<p>
+						The runner currently computes a proposed retry timestamp before it sends the failure
+						request. The Store compares that persisted deadline against its own clock on acquisition
+						and step start. Clock skew can therefore affect the chosen deadline, but cannot
+						authorize an expired lease or bypass the Store's due-time comparison. Adapter designs
+						should keep worker and database time aligned or move deadline calculation into the
+						atomic store transition.
+					</p>
+
+					<h2 id="errors">Store errors</h2>
+					<p>
+						<code>StoreError::Unavailable</code> means the backend could not report a reliable
+						outcome. The runner retries some mutations once using the same request and mutation ID.
+						<code>Conflict</code> covers stale ownership, state, revision, or incompatible identity.
+						<code>Corrupt</code> means persisted data violates its record invariants. Conflicts and
+						corruption are not transient failures to retry blindly.
+					</p>
+
+					<h2 id="transaction-scope">Application transactions</h2>
+					<p>
+						The portable Store contract does not require a shared transaction with application data.
+						An adapter may expose a transaction extension when both use one database, allowing a
+						domain write and execution creation to commit together. That extension is
+						adapter-specific and must not leak into the core Store API.
+					</p>
+
+					<h2 id="current-adapter">Current adapter state</h2>
+					<p>
+						<code>resumable-store-postgres-sqlx</code> currently contains only its crate scaffold.
+						There is no PostgreSQL schema or production Store implementation yet.
+						<code>reference::MemoryStore</code> is the current executable implementation and is
+						intended for tests and examples, not process restarts or production durability.
+					</p>
+
+					<footer class="doc-footer">
+						<a href="execution-model.html">Previous: execution state model</a
+						><a href="records-and-values.html">Next: records and values</a>
+					</footer>
+				</article>
+			</main>
+		</div>
+	</body>
+</html>

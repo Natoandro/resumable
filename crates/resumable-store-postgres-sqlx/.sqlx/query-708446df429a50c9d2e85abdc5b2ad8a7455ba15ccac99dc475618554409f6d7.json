@@ -1,0 +1,18 @@
+{
+	"db_name": "PostgreSQL",
+	"query": "SELECT record AS \"record: Json<ExecutionRecord>\"\n\t\tFROM resumable_executions\n\t\tWHERE id = $1\n\t\tFOR UPDATE",
+	"describe": {
+		"columns": [
+			{
+				"ordinal": 0,
+				"name": "record: Json<ExecutionRecord>",
+				"type_info": "Jsonb"
+			}
+		],
+		"parameters": {
+			"Left": ["Uuid"]
+		},
+		"nullable": [false]
+	},
+	"hash": "708446df429a50c9d2e85abdc5b2ad8a7455ba15ccac99dc475618554409f6d7"
+}

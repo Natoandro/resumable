@@ -1,0 +1,12 @@
+{
+	"db_name": "PostgreSQL",
+	"query": "INSERT INTO resumable_progress (\n\t\t\t\t\tstep_id, current_value, total_value, message, updated_at\n\t\t\t\t)\n\t\t\t\tSELECT s.id, $3::text::numeric, $4::text::numeric, $5,\n\t\t\t\t\t(TIMESTAMPTZ 'epoch' + $6::bigint * INTERVAL '1 millisecond')\n\t\t\t\tFROM resumable_steps AS s\n\t\t\t\tWHERE s.execution_id = $1 AND s.name = $2\n\t\t\t\tON CONFLICT (step_id) DO UPDATE SET\n\t\t\t\t\tcurrent_value = EXCLUDED.current_value,\n\t\t\t\t\ttotal_value = EXCLUDED.total_value,\n\t\t\t\t\tmessage = EXCLUDED.message,\n\t\t\t\t\tupdated_at = EXCLUDED.updated_at",
+	"describe": {
+		"columns": [],
+		"parameters": {
+			"Left": ["Uuid", "Text", "Text", "Text", "Text", "Int8"]
+		},
+		"nullable": []
+	},
+	"hash": "8760268dc6bb58401f2fb5fa735676f0fb8017af4420e9045e9912b32a35facd"
+}

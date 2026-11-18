@@ -1,0 +1,28 @@
+{
+	"db_name": "PostgreSQL",
+	"query": "SELECT p.current_value::text AS current_value,\n\t\t\t\tp.total_value::text AS total_value,\n\t\t\t\tp.message\n\t\t\tFROM resumable_progress AS p\n\t\t\tINNER JOIN resumable_steps AS s ON s.id = p.step_id\n\t\t\tWHERE s.execution_id = $1 AND s.name = $2",
+	"describe": {
+		"columns": [
+			{
+				"ordinal": 0,
+				"name": "current_value",
+				"type_info": "Text"
+			},
+			{
+				"ordinal": 1,
+				"name": "total_value",
+				"type_info": "Text"
+			},
+			{
+				"ordinal": 2,
+				"name": "message",
+				"type_info": "Text"
+			}
+		],
+		"parameters": {
+			"Left": ["Uuid", "Text"]
+		},
+		"nullable": [null, null, true]
+	},
+	"hash": "783cc779f1884f691186ee7e92d6370ce92c48dbc6a79d7b550e376c1aec3c33"
+}

@@ -1,0 +1,12 @@
+{
+	"db_name": "PostgreSQL",
+	"query": "INSERT INTO resumable_migrations (version, description, checksum)\n\t\t    VALUES ($1, $2, $3)",
+	"describe": {
+		"columns": [],
+		"parameters": {
+			"Left": ["Int8", "Text", "Bytea"]
+		},
+		"nullable": []
+	},
+	"hash": "9a88fc4255fda77bc65e794b51ad7ff0682c9c0d6bf5521f10069c12e67fe01f"
+}

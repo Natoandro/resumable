@@ -1,0 +1,23 @@
+{
+	"db_name": "PostgreSQL",
+	"query": "SELECT\n\t\t\t\trecord AS \"record: Json<StepRecord>\",\n\t\t\t\tactive_attempt_generation\n\t\t\tFROM resumable_steps\n\t\t\tWHERE execution_id = $1 AND name = $2\n\t\t\tFOR UPDATE",
+	"describe": {
+		"columns": [
+			{
+				"ordinal": 0,
+				"name": "record: Json<StepRecord>",
+				"type_info": "Jsonb"
+			},
+			{
+				"ordinal": 1,
+				"name": "active_attempt_generation",
+				"type_info": "Int8"
+			}
+		],
+		"parameters": {
+			"Left": ["Uuid", "Text"]
+		},
+		"nullable": [false, true]
+	},
+	"hash": "2f1c8b101dcce2845d229518954f5ec0aed22ceca43b86915d72d732416b1db5"
+}

@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta
+			name="description"
+			content="Execution records, step records, typed identities, stored values, metadata, and error types."
+		/>
+		<title>Records and values — resumable</title>
+		<link rel="icon" href="data:," />
+		<link rel="stylesheet" href="assets/docs.css" />
+		<link rel="stylesheet" href="assets/docs-content.css" />
+		<script src="assets/docs.js" defer></script>
+	</head>
+	<body>
+		<div class="docs-layout">
+			<main id="doc-content" class="doc-article">
+				<article>
+					<p class="doc-eyebrow">Implementation</p>
+					<h1>Records and values</h1>
+					<p class="lede">
+						The durable format separates application values from workflow metadata. IDs, statuses,
+						retry policy, and ownership fields let the Store validate transitions without
+						understanding the bytes of an input or result.
+					</p>
+					<p class="doc-meta">
+						<span>Audience: maintainers, adapter authors, and integrators</span
+						><span
+							>Source: <a href="../../src/record.rs">records</a>,
+							<a href="../../src/value.rs">values</a>,
+							<a href="../../src/identity.rs">identity types</a></span
+						>
+					</p>
+
+					<h2 id="typed-identities">Typed identities</h2>
+					<p>
+						Execution IDs, step IDs, worker IDs, and lease tokens are separate Rust newtypes over
+						UUIDs. They share an encoding shape but cannot be accidentally passed in place of one
+						another in typed APIs. <code>Revision</code> is a separate unsigned counter used for
+						compare-and-swap.
+					</p>
+					<p>
+						<code>OperationKey</code> is a name and numeric version. It identifies which application
+						code understands a durable execution. <code>StepName</code> identifies a checkpoint
+						inside one execution. Step names contain 1–200 UTF-8 bytes and are compared exactly,
+						without case folding or Unicode normalization.
+					</p>
+
+					<figure class="figure">
+						<svg viewBox="0 0 720 190" role="img" aria-labelledby="stored-title stored-desc">
+							<title id="stored-title">Stored value envelope</title>
+							<desc id="stored-desc">
+								A stored value consists of a codec identifier, schema version, and opaque payload
+								bytes. The matching codec verifies these fields and decodes the payload into an
+								application type.
+							</desc>
+							<rect class="node node-main" x="24" y="46" width="170" height="88" rx="6"></rect>
+							<text x="109" y="80" text-anchor="middle">StoredValue</text>
+							<text class="minor" x="109" y="103" text-anchor="middle">opaque envelope</text>
+							<path class="line" d="M194 90h37m0 0-7-6m7 6-7 6"></path>
+							<rect class="node" x="233" y="22" width="190" height="48" rx="5"></rect>
+							<text x="328" y="51" text-anchor="middle">codec ID</text>
+							<rect class="node" x="233" y="78" width="190" height="48" rx="5"></rect>
+							<text x="328" y="107" text-anchor="middle">schema version</text>
+							<rect class="node" x="233" y="134" width="190" height="42" rx="5"></rect>
+							<text x="328" y="160" text-anchor="middle">payload bytes</text>
+							<path class="line" d="M423 101h37m0 0-7-6m7 6-7 6"></path>
+							<rect class="node" x="462" y="46" width="230" height="88" rx="6"></rect>
+							<text x="577" y="80" text-anchor="middle">ValueCodec</text>
+							<text class="minor" x="577" y="103" text-anchor="middle">
+								validates, then decodes
+							</text>
+						</svg>
+						<figcaption>
+							The Store persists and returns the envelope without needing to interpret the
+							application type.
+						</figcaption>
+					</figure>
+
+					<h2 id="execution-record">Execution record</h2>
+					<p>
+						An <code>ExecutionRecord</code> contains the operation key; optional input and result;
+						bounded metadata; status and revision; creation, update, start, and completion
+						timestamps; optional cancellation request, lease, and failure. The record is the durable
+						snapshot an adapter validates and changes atomically.
+					</p>
+					<p>
+						Execution completion stores the encoded result in the same transition that sets the
+						terminal status. Failed execution records include a failure class, optional diagnostic
+						string, and time. Cancellation does not retain a result.
+					</p>
+
+					<h2 id="step-record">Step record</h2>
+					<p>
+						A <code>StepRecord</code> stores its own step ID and name along with parent execution
+						ID, status, attempt count, optional result, timestamps, next eligible attempt time, last
+						failure, and retry-policy snapshot. The step identity survives retries; attempt number
+						identifies which invocation ran.
+					</p>
+					<p>
+						A step result is only present after successful completion. A retryable failure stores
+						the next eligible timestamp with the failure. Starting the next attempt increments the
+						count, clears the prior failure and deadline, and records a new start time. The failure
+						classification and timestamp remain available in the resulting step record until the
+						next attempt starts.
+					</p>
+
+					<h2 id="value-codec">Value codec</h2>
+					<p>
+						<code>StoredValue</code> consists of a codec identifier, schema version, and bytes.
+						<code>JsonCodec</code> is the default and uses <code>serde-json</code> with schema
+						version <code>1</code>. A custom <code>ValueCodec</code> can encode application values
+						in another stable format. The same codec and schema version must remain decodable after
+						process restart.
+					</p>
+					<p>
+						Decode verifies payload size, codec identifier, and schema version before interpreting
+						bytes. Unknown codec, version mismatch, corrupt bytes, or type mismatch returns an
+						error. The runner must not treat a decode error as a missing completion: rerunning a
+						completed effect could duplicate external work.
+					</p>
+					<ul>
+						<li>Maximum codec identifier: 64 UTF-8 bytes.</li>
+						<li>Maximum encoded value: 16 MiB.</li>
+						<li>Encoded values are validated when constructed and when deserialized.</li>
+					</ul>
+
+					<h2 id="metadata">Execution metadata</h2>
+					<p>
+						Metadata is a small map of labels intended for filtering and diagnostics, not for
+						storing inputs or results. It is not required for correctness, and it is not part of
+						execution creation identity. The first successful create stores it; a compatible create
+						retry returns the original record and its metadata.
+					</p>
+					<ul>
+						<li>At most 64 labels.</li>
+						<li>Keys are non-empty and at most 64 UTF-8 bytes.</li>
+						<li>Values are at most 256 UTF-8 bytes.</li>
+						<li>Total key and value bytes are at most 8 KiB.</li>
+					</ul>
+					<p>
+						Inputs, results, metadata, and diagnostics may contain sensitive data. The core avoids
+						logging serialized values, but storage adapters and applications still own access
+						control, encryption, retention, and diagnostic redaction.
+					</p>
+
+					<h2 id="idempotency">Idempotency keys</h2>
+					<p>
+						The step key identifies one logical step across retries. The attempt key identifies a
+						single attempt and changes when the attempt number changes. Both are derived from the
+						execution UUID and exact step name; the attempt form also includes the attempt number.
+						Domain tags distinguish their intended use. Fields are length-prefixed, hashed with
+						SHA-256, and encoded as unpadded base64url with an <code>rs1_</code> prefix.
+					</p>
+					<p>
+						The hash makes keys compact and opaque; it does not provide authentication,
+						authorization, or a mathematical guarantee against collisions. Do not use an idempotency
+						key as a secret or capability.
+					</p>
+
+					<h2 id="time">Timestamps and time</h2>
+					<p>
+						<code>Timestamp</code> stores Unix milliseconds. Different decisions use clocks at
+						different boundaries: the adapter clock is authoritative for lease expiry and whether
+						persisted retry deadlines are due. The runner currently supplies timestamps and computes
+						proposed retry deadlines. See
+						<a href="store-contract.html#clock">clock authority</a> for the consequences of skew and
+						the adapter design requirement.
+					</p>
+
+					<h2 id="errors">Error categories</h2>
+					<div class="doc-table-wrap">
+						<table class="doc-table">
+							<caption>
+								Errors indicate which layer needs attention
+							</caption>
+							<thead>
+								<tr>
+									<th scope="col">Error</th>
+									<th scope="col">Meaning</th>
+									<th scope="col">Typical response</th>
+								</tr>
+							</thead>
+							<tbody>
+								<tr>
+									<th scope="row">Operation</th>
+									<td>User-supplied operation or step body returned an error</td>
+									<td>Apply operation policy; reconcile effects before another attempt</td>
+								</tr>
+								<tr>
+									<th scope="row">Store unavailable</th>
+									<td>Backend could not provide a reliable response</td>
+									<td>
+										Retry the identical mutation with the same mutation ID, then recover by
+										reloading/resuming
+									</td>
+								</tr>
+								<tr>
+									<th scope="row">Conflict</th>
+									<td>Stale owner, revision, state, identity, policy, or attempt</td>
+									<td>Do not blindly retry; reload and follow current state</td>
+								</tr>
+								<tr>
+									<th scope="row">Corrupt</th>
+									<td>Persisted record violates invariants or cannot be validated</td>
+									<td>Stop normal execution and repair or investigate the record</td>
+								</tr>
+								<tr>
+									<th scope="row">Value</th>
+									<td>Encoding, codec, schema, size, or decode problem</td>
+									<td>Use the compatible codec/version; preserve completed state</td>
+								</tr>
+								<tr>
+									<th scope="row">Busy / terminal</th>
+									<td>
+										Execution has another live owner or cannot be claimed in its current state
+									</td>
+									<td>Wait for dispatch eligibility or treat the terminal result as final</td>
+								</tr>
+							</tbody>
+						</table>
+					</div>
+
+					<h2 id="retention">Retention and purge</h2>
+					<p>
+						The Store can purge only completed or cancelled executions, removing their steps and
+						progress together. Pending, running, and failed records may still be needed for resume
+						and are rejected. Applications decide when terminal history is safe to delete. Large
+						referenced artifacts need a retention period at least as long as the execution history
+						that refers to them.
+					</p>
+
+					<h2 id="reference-store">Reference store and conformance</h2>
+					<p>
+						<code>reference::MemoryStore</code> is an in-process implementation for development and
+						tests. Its <code>ManualClock</code> controls lease and retry eligibility.
+						<code>FaultInjector</code> can simulate a failure before commit or a commit whose
+						response was lost.
+					</p>
+					<p>
+						Adapter authors can run <code>conformance::run_store_scenarios</code> against a fresh
+						store to check shared behavior. The scenario matrix is summarized in the
+						<a href="../../../../docs/resumable/reference-store-conformance.md"
+							>conformance coverage document</a
+						>. A passing in-memory store does not prove an adapter's database transactions are
+						atomic; each adapter must pass the same scenarios.
+					</p>
+
+					<footer class="doc-footer">
+						<a href="store-contract.html">Previous: Store and ownership</a
+						><a href="index.html">Documentation overview</a>
+					</footer>
+				</article>
+			</main>
+		</div>
+	</body>
+</html>

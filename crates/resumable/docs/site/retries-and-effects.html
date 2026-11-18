@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta
+			name="description"
+			content="Retry behavior, idempotency, and external side-effect recovery in resumable."
+		/>
+		<title>Retries and external effects — resumable</title>
+		<link rel="icon" href="data:," />
+		<link rel="stylesheet" href="assets/docs.css" />
+		<link rel="stylesheet" href="assets/docs-content.css" />
+		<script src="assets/docs.js" defer></script>
+	</head>
+	<body>
+		<div class="docs-layout">
+			<main id="doc-content" class="doc-article">
+				<article>
+					<p class="doc-eyebrow">Using the library</p>
+					<h1>Retries and external effects</h1>
+					<p class="lede">
+						Retry policy controls whether another step attempt may run. It cannot tell whether an
+						external system already performed an action. Stable idempotency and reconciliation close
+						that gap.
+					</p>
+					<p class="doc-meta">
+						<span>Audience: library integrators</span
+						><span>Related: <a href="store-contract.html">Store and ownership</a></span>
+					</p>
+
+					<figure class="figure">
+						<svg viewBox="0 0 740 250" role="img" aria-labelledby="crash-title crash-desc">
+							<title id="crash-title">Crash window around an external side effect</title>
+							<desc id="crash-desc">
+								The runner records an attempt, calls an external provider, then records completion.
+								If the provider succeeds but the process stops before completion commits, a later
+								run calls the step again. A stable key lets the provider deduplicate or the
+								application reconcile the result.
+							</desc>
+							<rect class="node" x="28" y="58" width="155" height="74" rx="6"></rect>
+							<text x="105" y="88" text-anchor="middle">Begin attempt</text>
+							<text class="minor" x="105" y="108" text-anchor="middle">durable record</text>
+							<path class="line" d="M183 95h35m0 0-7-6m7 6-7 6"></path>
+							<rect class="node node-main" x="220" y="58" width="175" height="74" rx="6"></rect>
+							<text x="307" y="88" text-anchor="middle">External effect</text>
+							<text class="minor" x="307" y="108" text-anchor="middle">
+								provider accepts request
+							</text>
+							<path class="line" d="M395 95h35m0 0-7-6m7 6-7 6"></path>
+							<rect class="node" x="432" y="58" width="185" height="74" rx="6"></rect>
+							<text x="524" y="88" text-anchor="middle">Commit completion</text>
+							<text class="minor" x="524" y="108" text-anchor="middle">durable result</text>
+							<path d="M407 44v102" stroke="#b54343" stroke-width="2" stroke-dasharray="4 4"></path>
+							<text x="407" y="29" text-anchor="middle" class="label" fill="#b54343">
+								crash window
+							</text>
+							<path class="line dashed" d="M307 133v64h260v-60m0 0-6 7m6-7 6 7"></path>
+							<text class="minor" x="430" y="218" text-anchor="middle">
+								repeat request with the same step key, or inspect external state
+							</text>
+							<text class="label" x="307" y="157" text-anchor="middle">
+								same stable step identity
+							</text>
+						</svg>
+						<figcaption>
+							The library's completion record and a provider's side effect are separate commits
+							unless both systems share an application transaction. resumable does not claim
+							exactly-once effects.
+						</figcaption>
+					</figure>
+
+					<h2 id="attempts">Attempts and policy</h2>
+					<p>
+						A step starts at attempt 1. <code>max_attempts</code> counts the total number of
+						attempts, including the first. The default <code>StepOptions</code> permits one
+						permanent attempt. To retry, mark the operation error retryable and choose a policy:
+					</p>
+					<pre><code>let options = StepOptions {
+    retry_policy: RetryPolicy {
+        max_attempts: 4,
+        backoff: Backoff::Exponential {
+            initial: Duration::from_secs(2),
+            factor: 2.0,
+            max: Duration::from_secs(30),
+            jitter: true,
+        },
+    },
+    retryable: true,
+};
+
+ctx.step_with("send-message", options, |step| async move {
+    provider.send(request, step.idempotency_key()).await
+}).await?;</code></pre>
+					<p>
+						The retry policy is stored atomically when the step first begins. Later calls with a
+						different policy conflict rather than silently changing the meaning of existing history.
+						A retryable failure is stored with its failure classification and next eligible
+						timestamp.
+					</p>
+					<p>
+						A scheduled retry releases the execution lease and marks the execution failed. The
+						caller gets the operation error and must explicitly call resume after the deadline; the
+						core does not sleep or run an internal scheduler. The Store checks eligibility against
+						its authoritative clock, and the original retry policy remains fixed across attempts.
+					</p>
+
+					<h2 id="stable-identity">Stable keys</h2>
+					<p>
+						Each step has a stable key derived from its execution ID and exact step-name bytes. The
+						key stays the same across attempts and can be sent as an external provider's idempotency
+						key. Each attempt also has a distinct attempt key, which is useful for logs or systems
+						that need to distinguish retries.
+					</p>
+					<p>
+						Keys are domain-separated, length-prefixed tuples hashed with SHA-256 and encoded as
+						unpadded base64url with the <code>rs1_</code> prefix. They do not include input values
+						or secrets. The step name is part of durable identity, so renaming it also changes the
+						external idempotency key.
+					</p>
+
+					<h2 id="reconcile">Reconcile the crash window</h2>
+					<p>
+						If an external request can be repeated safely, send the same stable step key on every
+						attempt. A provider that retains idempotency records can return the original result. If
+						the provider lacks idempotency support, query its state using a deterministic resource
+						identity and verify that the existing result matches before deciding to reuse it.
+					</p>
+					<p>
+						Attempt keys are not substitutes for step keys when an effect should happen once per
+						logical step: a new attempt key intentionally identifies a different attempt. Use it
+						only when each attempt itself should have a distinct external identity.
+					</p>
+					<div class="callout warning">
+						<p>
+							<strong>Retention matters.</strong> Provider deduplication lasts only as long as its
+							idempotency record. After that window, the application must reconcile external state
+							or deliberately choose a new identity. The library cannot prevent an old request from
+							being repeated after provider retention expires.
+						</p>
+					</div>
+
+					<h2 id="lease-not-exactly-once">Leases are not exactly-once execution</h2>
+					<p>
+						A lease prevents a second worker from claiming live work. If a worker pauses beyond
+						lease expiry, another worker can begin a new attempt while the first request is still in
+						flight. Fencing protects resumable's store from stale writes; it cannot cancel a network
+						request already sent to a provider.
+					</p>
+					<p>
+						Design effects to tolerate duplicate calls. Use a provider key, deterministic object
+						key, conditional write with fencing generation when supported, or application-owned
+						reconciliation. See <a href="store-contract.html#fencing">fencing and leases</a> for the
+						storage boundary.
+					</p>
+
+					<h2 id="failure-types">Failure types</h2>
+					<p>
+						Step body errors are classified as retryable only when
+						<code>StepOptions.retryable</code> is true and attempts remain. Otherwise the failure is
+						permanent. The diagnostic stores the error's display text; do not include secrets or
+						sensitive payloads in errors. Store failures are separate from operation failures and
+						can mean that the outcome of a write is uncertain.
+					</p>
+					<p>
+						When completion is uncertain, the Store contract uses a stable mutation ID to resolve a
+						repeated identical write. This protects the durable record from duplicate attempt
+						increments or conflicting completion. It does not deduplicate the external effect; that
+						uses the step's idempotency key.
+					</p>
+
+					<footer class="doc-footer">
+						<a href="using-the-core.html">Previous: operations and steps</a
+						><a href="execution-model.html">Implementation: execution state</a>
+					</footer>
+				</article>
+			</main>
+		</div>
+	</body>
+</html>

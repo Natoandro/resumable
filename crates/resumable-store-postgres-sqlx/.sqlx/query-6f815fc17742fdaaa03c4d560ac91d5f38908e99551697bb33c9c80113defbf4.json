@@ -1,0 +1,28 @@
+{
+	"db_name": "PostgreSQL",
+	"query": "SELECT mutation_kind, request_fingerprint,\n\t\t\toutcome AS \"outcome: Json<serde_json::Value>\"\n\t\tFROM resumable_mutation_receipts\n\t\tWHERE execution_id = $1 AND mutation_id = $2",
+	"describe": {
+		"columns": [
+			{
+				"ordinal": 0,
+				"name": "mutation_kind",
+				"type_info": "Text"
+			},
+			{
+				"ordinal": 1,
+				"name": "request_fingerprint",
+				"type_info": "Bytea"
+			},
+			{
+				"ordinal": 2,
+				"name": "outcome: Json<serde_json::Value>",
+				"type_info": "Jsonb"
+			}
+		],
+		"parameters": {
+			"Left": ["Uuid", "Uuid"]
+		},
+		"nullable": [false, false, false]
+	},
+	"hash": "6f815fc17742fdaaa03c4d560ac91d5f38908e99551697bb33c9c80113defbf4"
+}

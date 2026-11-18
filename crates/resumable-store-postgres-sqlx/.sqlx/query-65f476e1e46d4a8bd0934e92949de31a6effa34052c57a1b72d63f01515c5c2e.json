@@ -1,0 +1,12 @@
+{
+	"db_name": "PostgreSQL",
+	"query": "DELETE FROM resumable_executions WHERE id = $1",
+	"describe": {
+		"columns": [],
+		"parameters": {
+			"Left": ["Uuid"]
+		},
+		"nullable": []
+	},
+	"hash": "65f476e1e46d4a8bd0934e92949de31a6effa34052c57a1b72d63f01515c5c2e"
+}

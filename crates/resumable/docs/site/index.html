@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta
+			name="description"
+			content="Concepts and implementation guide for the resumable Rust library."
+		/>
+		<title>resumable — documentation</title>
+		<link rel="icon" href="data:," />
+		<link rel="stylesheet" href="assets/docs.css" />
+		<link rel="stylesheet" href="assets/docs-content.css" />
+		<script src="assets/docs.js" defer></script>
+	</head>
+	<body>
+		<div class="docs-layout">
+			<main id="doc-content" class="doc-article">
+				<article>
+					<p class="doc-eyebrow">Durable execution for Rust</p>
+					<h1>Operations that can continue after a restart</h1>
+					<p class="lede">
+						resumable records the useful boundary between application code and the work that must
+						survive a process stopping: named steps, their attempts, and their completed results.
+					</p>
+					<p class="doc-meta">
+						<span>Core library</span><span>v0.1 design</span
+						><span>Integrators and maintainers</span>
+					</p>
+
+					<figure class="figure">
+						<svg viewBox="0 0 760 210" role="img" aria-labelledby="overview-title overview-desc">
+							<title id="overview-title">An operation contains durable steps</title>
+							<desc id="overview-desc">
+								A running execution calls prepare, upload, and publish steps in order. Completed
+								step results are stored and reused after restart. An unfinished step may run again.
+							</desc>
+							<rect class="node node-main" x="22" y="62" width="130" height="82" rx="6"></rect>
+							<text x="87" y="96" text-anchor="middle">Execution</text>
+							<text class="minor" x="87" y="118" text-anchor="middle">stable identity</text>
+							<path class="line" d="M152 103h34m0 0-7-6m7 6-7 6"></path>
+							<rect class="node" x="188" y="62" width="130" height="82" rx="6"></rect>
+							<text x="253" y="96" text-anchor="middle">prepare</text>
+							<text class="minor" x="253" y="118" text-anchor="middle">completed result</text>
+							<path class="line" d="M318 103h34m0 0-7-6m7 6-7 6"></path>
+							<rect class="node" x="354" y="62" width="130" height="82" rx="6"></rect>
+							<text x="419" y="96" text-anchor="middle">upload</text>
+							<text class="minor" x="419" y="118" text-anchor="middle">attempt 2</text>
+							<path class="line dashed" d="M484 103h34m0 0-7-6m7 6-7 6"></path>
+							<rect class="node" x="520" y="62" width="130" height="82" rx="6"></rect>
+							<text x="585" y="96" text-anchor="middle">publish</text>
+							<text class="minor" x="585" y="118" text-anchor="middle">not started</text>
+						</svg>
+						<figcaption>
+							The operation function starts from its beginning on resume. Completed steps return
+							stored results; unfinished work can be attempted again.
+						</figcaption>
+					</figure>
+
+					<h2 id="what-it-is">What the library provides</h2>
+					<p>
+						A durable execution has an identity, operation key, input and result envelopes,
+						lifecycle status, revision, and optional lease. The application defines the operation
+						function. Inside it, calls to named steps mark the points where output becomes durable.
+					</p>
+					<p>
+						After a process stops, the application loads the execution and invokes the operation
+						again. resumable provides the stored input to that function. When execution reaches a
+						step already marked complete, the core decodes and returns its recorded result without
+						calling the body. The function can then continue at the next unfinished step.
+					</p>
+					<div class="callout">
+						<p>
+							<strong>Guarantee boundary.</strong> A completed step is not intentionally repeated by
+							resume. A side effect can still happen twice if it succeeds externally and the process
+							stops before the completion record is committed. Use stable identities and
+							reconciliation for that window.
+						</p>
+					</div>
+
+					<h2 id="choose-a-guide">Choose a guide</h2>
+					<h3 id="integrator-guides">Using the library</h3>
+					<ul>
+						<li>
+							<a href="using-the-core.html">Operations and steps</a> explains the API, execution
+							identity, step names, inputs, and stored results.
+						</li>
+						<li>
+							<a href="retries-and-effects.html">Retries and external effects</a> explains attempts,
+							retry schedules, idempotency keys, and side-effect recovery.
+						</li>
+					</ul>
+					<h3 id="maintainer-guides">Implementation details</h3>
+					<ul>
+						<li>
+							<a href="execution-model.html">Execution state model</a> describes lifecycle
+							transitions, leases, fencing, revisions, cancellation, and current support boundaries.
+						</li>
+						<li>
+							<a href="store-contract.html">Store and ownership</a> describes the atomic Store
+							contract and what an adapter must guarantee.
+						</li>
+						<li>
+							<a href="records-and-values.html">Records and values</a> covers IDs, serialization
+							envelopes, metadata limits, errors, retention, and conformance.
+						</li>
+					</ul>
+
+					<h2 id="scope">What it does not provide</h2>
+					<p>
+						The core is not a scheduler, queue, broker, or worker service. It does not discover
+						runnable executions or start workers after a deployment. Applications own dispatch,
+						authorization, and external clients. It does not capture Rust futures or promise
+						exactly-once execution of arbitrary external effects.
+					</p>
+					<p>
+						The portable crate depends on the application-provided <code>Store</code> and does not
+						require a specific async runtime. The reference in-memory store helps development and
+						testing, but is not durable storage. The Planum adapter crate is currently a scaffold;
+						production PostgreSQL persistence is not implemented yet.
+					</p>
+
+					<h2 id="source-docs">Design sources</h2>
+					<p>
+						This reader explains the concepts using the code and current v0.1 design. For the
+						complete contract, see the <a href="../specification.md">library specification</a> and
+						<a href="../architecture.md">architecture design</a>. Implementation plans and tickets
+						describe delivery work; they are not runtime behavior.
+					</p>
+				</article>
+			</main>
+		</div>
+	</body>
+</html>

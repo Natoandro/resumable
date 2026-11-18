@@ -1,0 +1,23 @@
+{
+	"db_name": "PostgreSQL",
+	"query": "WITH clock AS (SELECT resumable_now() AS now)\n\t\tSELECT DISTINCT e.operation_name, e.operation_version\n\t\tFROM resumable_executions e\n\t\tCROSS JOIN clock\n\t\tWHERE (\n\t\t\te.status IN ('pending', 'failed')\n\t\t\tOR (e.status = 'running' AND e.lease_expires_at <= clock.now)\n\t\t)\n\t\tAND (e.run_at IS NULL OR e.run_at <= clock.now)\n\t\tAND NOT EXISTS (\n\t\t\tSELECT 1\n\t\t\tFROM resumable_steps s\n\t\t\tWHERE s.execution_id = e.id\n\t\t\t\tAND s.next_attempt_at > clock.now\n\t\t)\n\t\tAND NOT EXISTS (\n\t\t\tSELECT 1\n\t\t\tFROM resumable_steps s\n\t\t\tWHERE s.execution_id = e.id\n\t\t\t\tAND s.status = 'failed'\n\t\t\t\tAND s.failure_class <> 'retryable'\n\t\t)\n\t\tAND NOT EXISTS (\n\t\t\tSELECT 1\n\t\t\tFROM unnest($1::text[], $2::bigint[]) AS supported(name, version)\n\t\t\tWHERE supported.name = e.operation_name\n\t\t\t\tAND supported.version = e.operation_version\n\t\t)\n\t\tORDER BY e.operation_name, e.operation_version\n\t\t",
+	"describe": {
+		"columns": [
+			{
+				"ordinal": 0,
+				"name": "operation_name",
+				"type_info": "Text"
+			},
+			{
+				"ordinal": 1,
+				"name": "operation_version",
+				"type_info": "Int8"
+			}
+		],
+		"parameters": {
+			"Left": ["TextArray", "Int8Array"]
+		},
+		"nullable": [false, false]
+	},
+	"hash": "dfa5a230b50a020ab0019f272a56410aa70adcd7292dada1a69592c7bc8224be"
+}

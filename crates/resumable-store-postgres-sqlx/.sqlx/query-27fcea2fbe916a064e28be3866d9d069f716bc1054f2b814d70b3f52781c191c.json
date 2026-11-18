@@ -1,0 +1,18 @@
+{
+	"db_name": "PostgreSQL",
+	"query": "SELECT floor(extract(epoch FROM resumable_now()) * 1000)::bigint AS \"now_ms!\"",
+	"describe": {
+		"columns": [
+			{
+				"ordinal": 0,
+				"name": "now_ms!",
+				"type_info": "Int8"
+			}
+		],
+		"parameters": {
+			"Left": []
+		},
+		"nullable": [null]
+	},
+	"hash": "27fcea2fbe916a064e28be3866d9d069f716bc1054f2b814d70b3f52781c191c"
+}

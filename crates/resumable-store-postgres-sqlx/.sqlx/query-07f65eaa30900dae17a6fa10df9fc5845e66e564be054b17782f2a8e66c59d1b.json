@@ -1,0 +1,12 @@
+{
+	"db_name": "PostgreSQL",
+	"query": "INSERT INTO resumable_mutation_receipts (\n\t\t\texecution_id, mutation_id, mutation_kind, request_fingerprint, outcome\n\t\t) VALUES ($1, $2, $3, $4, $5)",
+	"describe": {
+		"columns": [],
+		"parameters": {
+			"Left": ["Uuid", "Uuid", "Text", "Bytea", "Jsonb"]
+		},
+		"nullable": []
+	},
+	"hash": "07f65eaa30900dae17a6fa10df9fc5845e66e564be054b17782f2a8e66c59d1b"
+}

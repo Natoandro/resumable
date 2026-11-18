@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta
+			name="description"
+			content="Execution status, leases, revisions, cancellation, and progress in resumable."
+		/>
+		<title>Execution state model — resumable</title>
+		<link rel="icon" href="data:," />
+		<link rel="stylesheet" href="assets/docs.css" />
+		<link rel="stylesheet" href="assets/docs-content.css" />
+		<script src="assets/docs.js" defer></script>
+	</head>
+	<body>
+		<div class="docs-layout">
+			<main id="doc-content" class="doc-article">
+				<article>
+					<p class="doc-eyebrow">Implementation</p>
+					<h1>Execution state model</h1>
+					<p class="lede">
+						The runner describes one execution at a time. Durable records hold lifecycle state,
+						while the Store arbitrates ownership and commits each transition atomically.
+					</p>
+					<p class="doc-meta">
+						<span>Audience: maintainers and adapter authors</span
+						><span>Source: <a href="../../src/record/execution.rs">execution record</a></span>
+					</p>
+
+					<h2 id="state">Execution and step states</h2>
+					<p>
+						An execution begins <code>Pending</code>. A worker claim moves it to
+						<code>Running</code>. It then reaches <code>Completed</code>, <code>Failed</code>, or
+						<code>Cancelled</code>. Completed and cancelled are terminal. Failed means execution
+						stopped with an operation error; explicit application policy may allow another claim if
+						the stored step failures and retry timing permit it.
+					</p>
+					<p>
+						A step is identified by its execution and name. Its status is <code>Pending</code>,
+						<code>Running</code>, <code>Completed</code>, <code>Failed</code>, or
+						<code>Cancelled</code>. The first attempt changes the counter from zero to one. A
+						completed step cannot be started again. A failed retryable step can begin another
+						attempt when due and when the execution is claimed again.
+					</p>
+
+					<figure class="figure">
+						<svg viewBox="0 0 740 285" role="img" aria-labelledby="state-title state-desc">
+							<title id="state-title">Execution and step lifecycle</title>
+							<desc id="state-desc">
+								Pending is claimed into Running. Running can complete, fail, or be cancelled. A
+								retryable step failure with attempts left and an eligible deadline releases the
+								execution back to Pending. Cancellation of a pending execution is immediate.
+							</desc>
+							<rect class="node" x="25" y="54" width="125" height="60" rx="6"></rect>
+							<text x="87" y="88" text-anchor="middle">Pending</text>
+							<path class="line" d="M150 84h70m0 0-7-6m7 6-7 6"></path>
+							<text class="minor" x="185" y="70" text-anchor="middle">claim</text>
+							<rect class="node node-main" x="223" y="54" width="125" height="60" rx="6"></rect>
+							<text x="285" y="88" text-anchor="middle">Running</text>
+							<path class="line" d="M348 72h70m0 0-7-6m7 6-7 6"></path>
+							<rect class="node" x="421" y="22" width="125" height="52" rx="6"></rect>
+							<text x="483" y="53" text-anchor="middle">Completed</text>
+							<path class="line" d="M348 84h70m0 0-7-6m7 6-7 6"></path>
+							<rect class="node" x="421" y="84" width="125" height="52" rx="6"></rect>
+							<text x="483" y="115" text-anchor="middle">Failed</text>
+							<path class="line" d="M348 98h70m0 0-7-6m7 6-7 6"></path>
+							<rect class="node node-warn" x="421" y="146" width="125" height="52" rx="6"></rect>
+							<text x="483" y="177" text-anchor="middle">Cancelled</text>
+							<path class="line dashed" d="M483 137v54H87v-75m0 0-6 7m6-7 6 7"></path>
+							<text class="minor" x="281" y="211" text-anchor="middle">
+								eligible retry after a failed attempt
+							</text>
+							<path class="line dashed" d="M87 114v54h328m0 0-7-6m7 6-7 6"></path>
+							<text class="minor" x="246" y="185" text-anchor="middle">cancel pending</text>
+							<text class="minor" x="575" y="49">Successful finish</text>
+							<text class="minor" x="575" y="111">Operation error</text>
+							<text class="minor" x="575" y="173">Cancellation request</text>
+						</svg>
+						<figcaption>
+							Execution status and step status are separate records. A step retry can return the
+							execution to pending while completed sibling steps remain available.
+						</figcaption>
+					</figure>
+
+					<h2 id="revision">Revisions protect snapshots</h2>
+					<p>
+						Every execution record has a monotonically increasing revision. A runner loads a
+						revision, performs a transition with that expected revision, and refreshes its local
+						guard after successful step writes. The Store checks the revision in the same atomic
+						operation as the change. If another actor changed the record first, the stale mutation
+						conflicts instead of overwriting newer state.
+					</p>
+					<p>
+						Revision is a compare-and-swap version for the whole execution record. Step writes
+						increment it because step progress changes the execution's durable history. Revisions do
+						not replace lease fencing: they answer different questions. Revision asks “is this still
+						the state I read?” Generation asks “is this still the current owner?”
+					</p>
+
+					<h2 id="lease">Lease and fencing generation</h2>
+					<p>
+						A lease records the worker, claim ID, requested duration, random lease token,
+						generation, and expiry timestamp. The Store checks all of these, along with expected
+						revision, on every owner mutation. When a lease expires, a new claim gets a greater
+						generation and a fresh token. The old worker is fenced out even if it wakes later.
+					</p>
+					<p>
+						The expiry check uses the Store's clock inside the atomic mutation. Reaching the expiry
+						time itself means the lease is no longer valid. A heartbeat can extend a valid lease,
+						but cannot revive an expired one.
+					</p>
+					<p>
+						Fencing only protects systems that check the generation. The resumable Store can reject
+						a stale worker's write; an unrelated mail provider or object store cannot know about
+						that generation unless the application passes it and the external system enforces it.
+					</p>
+
+					<h2 id="step-sequential">Why v0.1 steps are sequential</h2>
+					<p>
+						One execution has one lease and one revision stream. Step calls are sequential in v0.1,
+						so a step body cannot race another step body in the same execution. This gives a simple
+						order for revision refresh, cancellation observation, and result reuse. Parallelism
+						belongs across executions; parallel branches would need a different ownership and merge
+						contract.
+					</p>
+
+					<h2 id="cancellation-and-progress">Cancellation and progress support</h2>
+					<p>
+						The record and Store model can persist cancellation requests. A request cancels a
+						pending execution immediately. For a running execution, the Store records a request
+						timestamp; finishing after that timestamp produces a cancelled record and does not
+						retain an execution result. A request that arrives after a terminal state leaves it
+						unchanged.
+					</p>
+					<p>
+						The current runner does not poll cancellation or expose a cancellation token from
+						<code>StepContext</code>. A running body therefore cannot yet cooperatively stop between
+						effects. The Store can persist a heartbeat and optional progress value, but the current
+						execution context does not provide a heartbeat/progress API. These are model and Store
+						capabilities, not completed end-to-end runner features.
+					</p>
+					<div class="callout warning">
+						<p>
+							<strong>Current limit.</strong> Do not assume an active run will stop promptly after
+							cancellation or automatically renew its lease during long work. The worker currently
+							has a configured lease duration but no runner heartbeat loop.
+						</p>
+					</div>
+
+					<h2 id="lease-loss">What happens after lease loss</h2>
+					<p>
+						A body already running in Rust is not forcibly aborted by the Store. Its next attempt to
+						mutate resumable state fails when the guard is stale or expired. If the external action
+						completed during that interval, the new owner must use the step's stable key or
+						reconcile the external result before it repeats the action.
+					</p>
+
+					<h2 id="operation-result">Execution result and failure</h2>
+					<p>
+						The execution result is encoded and persisted atomically with the transition to
+						completed. If cancellation is already recorded, the final status is cancelled and no
+						execution result is kept. An operation error outside a step stores an execution failure
+						and releases the lease. A step error records failure details on that step; if retry is
+						eligible, the step and execution return to pending after the runner exits.
+					</p>
+
+					<footer class="doc-footer">
+						<a href="store-contract.html">Next: Store and ownership</a>
+					</footer>
+				</article>
+			</main>
+		</div>
+	</body>
+</html>

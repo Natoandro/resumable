@@ -1,0 +1,18 @@
+{
+	"db_name": "PostgreSQL",
+	"query": "SELECT count(*)::bigint AS \"count!\"\n\t\t\t\tFROM resumable_steps\n\t\t\t\tWHERE execution_id = $1 AND status <> 'completed'",
+	"describe": {
+		"columns": [
+			{
+				"ordinal": 0,
+				"name": "count!",
+				"type_info": "Int8"
+			}
+		],
+		"parameters": {
+			"Left": ["Uuid"]
+		},
+		"nullable": [null]
+	},
+	"hash": "2840079df9c2c6ddc1df6df4c2e0bc7da692b36ec92ad0300b5dd68507ec9458"
+}

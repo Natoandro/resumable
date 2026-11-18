@@ -1,0 +1,32 @@
+{
+	"db_name": "PostgreSQL",
+	"query": "UPDATE resumable_executions SET\n\t\t\t\tstatus = $2,\n\t\t\t\trevision = $3,\n\t\t\t\tfencing_generation = $4,\n\t\t\t\tworker_id = $5,\n\t\t\t\tlease_token = $6,\n\t\t\t\tclaim_id = $7,\n\t\t\t\tlease_duration_ms = $8,\n\t\t\t\tlease_expires_at =\n\t\t\t\t\t(TIMESTAMPTZ 'epoch' + $9::bigint * INTERVAL '1 millisecond'),\n\t\t\t\tfailure_class = $10,\n\t\t\t\tfailure_diagnostic = $11,\n\t\t\t\tresult_codec = $12,\n\t\t\t\tresult_schema_version = $13,\n\t\t\t\tresult_bytes = $14,\n\t\t\t\tupdated_at = (TIMESTAMPTZ 'epoch' + $15::bigint * INTERVAL '1 millisecond'),\n\t\t\t\tstarted_at = (TIMESTAMPTZ 'epoch' + $16::bigint * INTERVAL '1 millisecond'),\n\t\t\t\tcompleted_at = (TIMESTAMPTZ 'epoch' + $17::bigint * INTERVAL '1 millisecond'),\n\t\t\t\tcancellation_requested_at =\n\t\t\t\t\t(TIMESTAMPTZ 'epoch' + $18::bigint * INTERVAL '1 millisecond'),\n\t\t\t\trecord = $19\n\t\t\tWHERE id = $1",
+	"describe": {
+		"columns": [],
+		"parameters": {
+			"Left": [
+				"Uuid",
+				"Text",
+				"Int8",
+				"Int8",
+				"Uuid",
+				"Uuid",
+				"Uuid",
+				"Int8",
+				"Int8",
+				"Text",
+				"Text",
+				"Text",
+				"Int8",
+				"Bytea",
+				"Int8",
+				"Int8",
+				"Int8",
+				"Int8",
+				"Jsonb"
+			]
+		},
+		"nullable": []
+	},
+	"hash": "3ceadbafcd73f18643b95b6b0429854b71677c0ca453732ed5a820c8a8552cc8"
+}

@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="description" content="Use executions and durable steps in resumable." />
+		<title>Operations and steps — resumable</title>
+		<link rel="icon" href="data:," />
+		<link rel="stylesheet" href="assets/docs.css" />
+		<link rel="stylesheet" href="assets/docs-content.css" />
+		<script src="assets/docs.js" defer></script>
+	</head>
+	<body>
+		<div class="docs-layout">
+			<main id="doc-content" class="doc-article">
+				<article>
+					<p class="doc-eyebrow">Using the library</p>
+					<h1>Operations and steps</h1>
+					<p class="lede">
+						An operation is ordinary Rust code. An execution is one durable instance of that
+						operation. Named steps mark the results the code can reuse after a restart.
+					</p>
+					<p class="doc-meta">
+						<span>Audience: library integrators</span
+						><span>Related: <a href="retries-and-effects.html">retries and effects</a></span>
+					</p>
+
+					<h2 id="three-things">Operation, execution, step</h2>
+					<p>These terms describe different layers:</p>
+					<ul>
+						<li>
+							<strong>Operation:</strong> a versioned kind of work, such as
+							<code>build-report</code>. The operation key is code identity: a name plus version.
+						</li>
+						<li>
+							<strong>Execution:</strong> one durable request to run an operation. It has a stable
+							execution ID, input, status, and eventually a result or failure.
+						</li>
+						<li>
+							<strong>Step:</strong> a named durable checkpoint inside an execution. The pair of
+							execution ID and exact step name identifies it.
+						</li>
+					</ul>
+					<p>
+						The operation function is not serialized. On a later run, application code must supply a
+						compatible function for the stored operation key. Increment the operation version when
+						new code cannot safely interpret earlier stored data or step history.
+					</p>
+
+					<figure class="figure">
+						<svg viewBox="0 0 720 230" role="img" aria-labelledby="identity-title identity-desc">
+							<title id="identity-title">
+								Operation, execution, and steps have separate identities
+							</title>
+							<desc id="identity-desc">
+								The operation key is a name and version. Each execution gets its own UUID and
+								contains named steps. A step is identified by the execution UUID and exact step
+								name.
+							</desc>
+							<rect class="node node-main" x="230" y="12" width="260" height="58" rx="6"></rect>
+							<text x="360" y="37" text-anchor="middle">OperationKey</text>
+							<text class="minor" x="360" y="56" text-anchor="middle">name + version</text>
+							<path class="line" d="M360 70v28m0 0-7-7m7 7 7-7"></path>
+							<rect class="node" x="230" y="102" width="260" height="58" rx="6"></rect>
+							<text x="360" y="127" text-anchor="middle">Execution</text>
+							<text class="minor" x="360" y="146" text-anchor="middle">
+								execution UUID + durable record
+							</text>
+							<path class="line" d="M290 160v25m0 0-7-7m7 7 7-7M430 160v25m0 0-7-7m7 7 7-7"></path>
+							<rect class="node" x="80" y="190" width="210" height="34" rx="5"></rect>
+							<text x="185" y="212" text-anchor="middle">Step: prepare</text>
+							<rect class="node" x="430" y="190" width="210" height="34" rx="5"></rect>
+							<text x="535" y="212" text-anchor="middle">Step: upload</text>
+						</svg>
+						<figcaption>
+							Changing the operation version selects different code. Changing a step name creates a
+							different checkpoint in every execution.
+						</figcaption>
+					</figure>
+
+					<h2 id="starting">Starting an execution</h2>
+					<p>
+						<code>Engine::start</code> creates a random execution ID. Use
+						<code>start_with_id</code> when a domain event or database row already provides a stable
+						identity. Both APIs persist the encoded input before invoking the operation, and the
+						runner decodes that stored input before calling user code.
+					</p>
+					<pre><code>let engine = Engine::new(store);
+let operation = OperationKey::new("build-report", 1)?;
+let (execution_id, report) = engine
+    .start_with_context(operation, request, |request, ctx| async move {
+        let source = ctx.step("load-source", |_step| async move {
+            load_source(request.source_id).await
+        }).await?;
+
+        ctx.step("render", |_step| async move {
+            render_report(source).await
+        }).await
+    })
+    .await?;</code></pre>
+					<p>
+						The operation closure is <code>FnOnce</code>: it runs once per call to start or resume.
+						Step bodies are <code>Fn</code> factories: a new future can be created for each attempt.
+						Capture values that can be borrowed or cloned for another call. A value that should
+						survive a restart should be returned by a prior step or reconstructed from durable
+						application data.
+					</p>
+
+					<h2 id="durable-boundary">What makes a step durable</h2>
+					<p>
+						For each call, the runner checks the stored step. If it is completed, the runner decodes
+						and returns its stored result. Otherwise it atomically begins an attempt, calls the
+						body, encodes the output, and asks the store to commit completion. Only after completion
+						commits does the step call return success.
+					</p>
+					<p>
+						Code between step calls is not checkpointed. On resume it executes again. Keep such code
+						deterministic or safe to repeat, especially if it has an external side effect. Place a
+						durable step boundary around work whose output needs to be reused.
+					</p>
+
+					<h2 id="step-names">Step names are durable identifiers</h2>
+					<p>
+						A step is unique by <code>(execution_id, step_name)</code>. Names are compared as exact
+						UTF-8 bytes; no Unicode normalization is applied. Names must contain 1–200 UTF-8 bytes.
+						Treat names as persistent identifiers, not labels for a user interface.
+					</p>
+					<p>
+						If a deployed operation changes <code>upload</code> to <code>upload-v2</code>, an old
+						execution has no completed result under the new name. It will run the new step. If that
+						change is incompatible with old execution data, route old operation versions to
+						compatible code or deliberately start a new execution.
+					</p>
+
+					<h2 id="input-and-result">Inputs and results</h2>
+					<p>
+						Inputs, step results, and execution results are stored as opaque envelopes: codec ID,
+						schema version, and bytes. The default JSON codec is <code>serde-json</code> version
+						<code>1</code>. A completed value must still have a compatible decoder when a later
+						process resumes it. A decode error does not erase a completed step or authorize
+						replaying its body.
+					</p>
+					<p>
+						Values are limited to 16 MiB. Store large artifacts elsewhere and persist a stable
+						reference such as an object key, content hash, or domain ID. The referenced object must
+						remain available for as long as a future resume may need it.
+					</p>
+
+					<h2 id="start-again">Resume and dispatch</h2>
+					<p>
+						<code>resume</code> loads the execution by ID and checks the operation key. It then runs
+						the supplied operation function with the stored input. Terminal completed executions
+						return their stored result. A failed execution is rejected by default; set
+						<code>FailedExecutionPolicy::Resume</code> to allow the engine to try claiming a failed
+						execution again, subject to the store's state and retry checks.
+					</p>
+					<p>
+						resumable does not find or schedule pending work. Your application must persist the
+						execution ID somewhere it can recover, decide when to call resume, and ensure only
+						authorized workers do so. A queue can wake workers, but it is not the durable source of
+						truth unless it participates in the same persistence guarantees.
+					</p>
+
+					<h2 id="support-status">Current API boundaries</h2>
+					<p>
+						The current core provides direct start/resume, named steps, persisted values, step
+						retries, leasing, and result reuse. Cancellation requests and heartbeat/progress storage
+						exist at the Store layer, but the runner does not yet expose cooperative cancellation or
+						progress through <code>StepContext</code>. See
+						<a href="execution-model.html#cancellation-and-progress">execution state model</a> for
+						the distinction.
+					</p>
+					<footer class="doc-footer">
+						<a href="retries-and-effects.html">Next: retries and external effects</a>
+					</footer>
+				</article>
+			</main>
+		</div>
+	</body>
+</html>

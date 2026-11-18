@@ -1,0 +1,28 @@
+{
+	"db_name": "PostgreSQL",
+	"query": "UPDATE resumable_steps SET\n\t\t\t\tstatus = $2,\n\t\t\t\tattempt_count = $3,\n\t\t\t\tactive_attempt_generation = $4,\n\t\t\t\tresult_codec = $5,\n\t\t\t\tresult_schema_version = $6,\n\t\t\t\tresult_bytes = $7,\n\t\t\t\tretry_policy = $8,\n\t\t\t\tfailure_class = $9,\n\t\t\t\tfailure_diagnostic = $10,\n\t\t\t\tupdated_at = (TIMESTAMPTZ 'epoch' + $11::bigint * INTERVAL '1 millisecond'),\n\t\t\t\tstarted_at = (TIMESTAMPTZ 'epoch' + $12::bigint * INTERVAL '1 millisecond'),\n\t\t\t\tcompleted_at = (TIMESTAMPTZ 'epoch' + $13::bigint * INTERVAL '1 millisecond'),\n\t\t\t\tnext_attempt_at = (TIMESTAMPTZ 'epoch' + $14::bigint * INTERVAL '1 millisecond'),\n\t\t\t\trecord = $15\n\t\t\tWHERE id = $1",
+	"describe": {
+		"columns": [],
+		"parameters": {
+			"Left": [
+				"Uuid",
+				"Text",
+				"Int8",
+				"Int8",
+				"Text",
+				"Int8",
+				"Bytea",
+				"Jsonb",
+				"Text",
+				"Text",
+				"Int8",
+				"Int8",
+				"Int8",
+				"Int8",
+				"Jsonb"
+			]
+		},
+		"nullable": []
+	},
+	"hash": "ead56816d3fb52bdf9e347385d73457c0e92c65be694d15a7ecbd97b917e8ebb"
+}

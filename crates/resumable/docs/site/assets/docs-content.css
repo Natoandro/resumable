@@ -1,0 +1,253 @@
+.doc-article {
+	min-width: 0;
+	max-width: 54rem;
+}
+.doc-article h1,
+.doc-article h2,
+.doc-article h3 {
+	scroll-margin-top: 5rem;
+	line-height: 1.22;
+	letter-spacing: -0.028em;
+}
+.doc-article h1 {
+	max-width: 17ch;
+	margin: 0 0 0.7rem;
+	font-size: clamp(2rem, 4vw, 3rem);
+}
+.doc-article h2 {
+	margin: 3.2rem 0 0.85rem;
+	padding-top: 0.65rem;
+	border-top: 1px solid var(--line);
+	font-size: 1.55rem;
+}
+.doc-article h3 {
+	margin: 2rem 0 0.55rem;
+	font-size: 1.12rem;
+}
+.doc-article p {
+	max-width: 76ch;
+	margin: 0.75rem 0 1rem;
+}
+.doc-article li {
+	max-width: 76ch;
+	margin: 0.25rem 0;
+}
+.doc-article ul,
+.doc-article ol {
+	padding-left: 1.3rem;
+}
+.doc-article .lede {
+	max-width: 66ch;
+	margin: 0 0 1.4rem;
+	color: var(--muted);
+	font-size: 1.12rem;
+	line-height: 1.55;
+}
+.doc-eyebrow {
+	margin: 0 0 0.65rem;
+	color: var(--green);
+	font-size: 0.78rem;
+	font-weight: 700;
+}
+.doc-meta {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.45rem 1rem;
+	margin: 0 0 2.25rem;
+	color: var(--muted);
+	font-size: 0.82rem;
+}
+.doc-meta span {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.35rem;
+}
+.doc-article strong {
+	font-weight: 680;
+}
+.doc-article code,
+.doc-article kbd {
+	font-family: var(--mono);
+	font-size: 0.88em;
+}
+.doc-article :not(pre) > code {
+	border: 1px solid #e3e7e3;
+	border-radius: 0.2rem;
+	padding: 0.08rem 0.27rem;
+	background: #f0f3f0;
+}
+.doc-article pre {
+	position: relative;
+	overflow: auto;
+	margin: 1.2rem 0 1.5rem;
+	border: 1px solid #d5ddd7;
+	border-radius: 0.4rem;
+	padding: 1rem 1.1rem;
+	background: #f1f4f1;
+	color: #26332b;
+	font: 0.85rem/1.65 var(--mono);
+	tab-size: 4;
+}
+.doc-article pre code {
+	font-size: inherit;
+}
+.copy-button {
+	position: absolute;
+	top: 0.5rem;
+	right: 0.5rem;
+	border: 1px solid var(--line-strong);
+	border-radius: 0.25rem;
+	padding: 0.2rem 0.45rem;
+	background: white;
+	color: var(--muted);
+	font-size: 0.74rem;
+	cursor: pointer;
+}
+.callout {
+	margin: 1.3rem 0;
+	border-left: 3px solid var(--blue);
+	padding: 0.75rem 1rem;
+	background: var(--blue-soft);
+}
+.callout.warning {
+	border-color: var(--amber);
+	background: var(--amber-soft);
+}
+.callout p:last-child {
+	margin-bottom: 0;
+}
+.figure {
+	margin: 1.5rem 0 2rem;
+	border: 1px solid var(--line);
+	border-radius: 0.45rem;
+	padding: 1.2rem;
+	background: var(--paper);
+}
+.figure svg {
+	display: block;
+	width: 100%;
+	height: auto;
+}
+.figure:focus-visible {
+	outline: 3px solid #527e68;
+	outline-offset: 3px;
+}
+.figure-hint {
+	display: none;
+}
+.figure figcaption {
+	margin-top: 0.8rem;
+	color: var(--muted);
+	font-size: 0.83rem;
+}
+.figure .node {
+	fill: #fff;
+	stroke: #aab8ae;
+	stroke-width: 1.4;
+}
+.figure .node-main {
+	fill: var(--green-soft);
+	stroke: var(--green);
+}
+.figure .node-warn {
+	fill: var(--amber-soft);
+	stroke: #b38b3f;
+}
+.figure .line {
+	stroke: #6e7c72;
+	stroke-width: 1.7;
+	fill: none;
+}
+.figure .dashed {
+	stroke-dasharray: 5 5;
+}
+.figure text {
+	fill: var(--ink);
+	font-family: inherit;
+	font-size: 13px;
+}
+.figure .minor {
+	fill: var(--muted);
+	font-size: 11px;
+}
+.figure .label {
+	fill: var(--green);
+	font-size: 11px;
+	font-weight: 700;
+}
+.doc-table-wrap {
+	overflow-x: auto;
+	margin: 1rem 0 1.5rem;
+}
+.doc-table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 0.89rem;
+}
+.doc-table caption {
+	padding: 0 0 0.55rem;
+	text-align: left;
+	color: var(--muted);
+	font-weight: 600;
+}
+.doc-table th,
+.doc-table td {
+	border-bottom: 1px solid var(--line);
+	padding: 0.55rem 0.65rem;
+	text-align: left;
+	vertical-align: top;
+}
+.doc-table th {
+	background: #edf1ed;
+	font-weight: 650;
+}
+.doc-table td:first-child {
+	min-width: 9rem;
+	font-family: var(--mono);
+	font-size: 0.82rem;
+}
+.doc-article details {
+	margin: 1rem 0;
+	border: 1px solid var(--line);
+	padding: 0.75rem 0.9rem;
+	background: var(--paper);
+}
+.doc-article summary {
+	cursor: pointer;
+	font-weight: 650;
+}
+.doc-footer {
+	margin-top: 4rem;
+	padding-top: 1rem;
+	border-top: 1px solid var(--line);
+	color: var(--muted);
+	font-size: 0.82rem;
+}
+.doc-footer a {
+	margin-right: 1rem;
+}
+
+@media (max-width: 760px) {
+	.doc-article h1 {
+		font-size: 2.15rem;
+	}
+	.doc-article h2 {
+		margin-top: 2.4rem;
+	}
+	.doc-article .lede {
+		font-size: 1.02rem;
+	}
+	.doc-article pre {
+		margin-inline: -0.15rem;
+		padding: 0.9rem;
+	}
+	.figure {
+		overflow-x: auto;
+	}
+	.figure svg {
+		min-width: 34rem;
+	}
+	.figure-hint {
+		display: inline;
+	}
+}
