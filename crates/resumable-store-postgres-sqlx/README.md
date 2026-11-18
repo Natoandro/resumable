@@ -1,6 +1,6 @@
 # resumable-store-postgres-sqlx
 
-Planum adapter for the generic [resumable](../resumable/README.md) crate.
+PostgreSQL adapter for the generic [resumable](../resumable/README.md) crate.
 
 The [adapter architecture draft](docs/architecture.md) describes package naming, persistence,
 transaction integration, independent migrations, and future database implementations.
@@ -40,9 +40,7 @@ against a different disposable database:
 cargo test -p resumable-store-postgres-sqlx --test postgres
 ```
 
-Planum supplies authorization,
-operation callbacks, provider clients, domain transactions, dispatch, and API presentation through
-server services. The adapter must not depend on the Planum server crate.
+Applications supply authorization, operation callbacks, provider clients, domain transactions,
+dispatch, and API presentation. This adapter has no dependency on any application server.
 
-The generic core and its adapters will be extracted together into one repository later. Until then,
-this package remains a path dependency in the DACB workspace.
+The adapter is published independently and depends on the `resumable` core crate.
