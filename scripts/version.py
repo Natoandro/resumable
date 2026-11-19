@@ -1,17 +1,35 @@
 #!/usr/bin/env python3
 import os
 import re
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
-if len(sys.argv) != 3 or sys.argv[1] not in {"bump", "ensure-version"}:
+def usage():
     raise SystemExit(
-        f"Usage: {sys.argv[0]} <bump <major|minor|patch|vX.Y.Z> | ensure-version vX.Y.Z>"
+        f"Usage: {sys.argv[0]} bump <major|minor|patch|vX.Y.Z> [--tag] [--push]\n"
+        f"       {sys.argv[0]} ensure-version vX.Y.Z"
     )
 
-root = Path(__file__).resolve().parent.parent
+
+if len(sys.argv) < 3 or sys.argv[1] not in {"bump", "ensure-version"}:
+    usage()
+
+command = sys.argv[1]
 request = sys.argv[2]
+options = sys.argv[3:]
+if (command == "ensure-version" and options) or any(
+    option not in {"--tag", "--push"} for option in options
+):
+    usage()
+if len(set(options)) != len(options):
+    usage()
+if "--push" in options and "--tag" not in options:
+    raise SystemExit("--push requires --tag")
+with_tag = "--tag" in options
+
+root = Path(__file__).resolve().parent.parent
 manifest_paths = [
     root / "crates/resumable/Cargo.toml",
     root / "crates/resumable-worker/Cargo.toml",
@@ -38,6 +56,13 @@ current_match = semver_pattern.fullmatch(current)
 if not current_match:
     raise SystemExit(f"Unsupported current version: {current}")
 
+if with_tag:
+    status = subprocess.run(
+        ["git", "status", "--porcelain"], cwd=root, check=True, text=True, capture_output=True
+    ).stdout
+    if status:
+        raise SystemExit("Cannot use --tag with a dirty worktree")
+
 if request in {"major", "minor", "patch"}:
     major, minor, patch = map(int, current_match.groups())
     if request == "major":
@@ -50,7 +75,7 @@ else:
     requested = request.removeprefix("v")
     if not semver_pattern.fullmatch(requested):
         raise SystemExit("Version must be major.minor.patch, optionally prefixed with 'v'")
-    if sys.argv[1] == "bump" and tuple(map(int, requested.split("."))) <= tuple(map(int, current.split("."))):
+    if command == "bump" and tuple(map(int, requested.split("."))) <= tuple(map(int, current.split("."))):
         raise SystemExit(f"New version {requested} must be greater than current version {current}")
     target = requested
 
@@ -79,7 +104,7 @@ updated_lock = package_block.sub(update_lock_block, lock)
 if seen != package_names:
     raise SystemExit(f"Cargo.lock is missing workspace packages: {', '.join(sorted(package_names - seen))}")
 
-if sys.argv[1] == "ensure-version":
+if command == "ensure-version":
     expected = request.removeprefix("v")
     if not semver_pattern.fullmatch(expected):
         raise SystemExit("Expected version must be major.minor.patch, optionally prefixed with 'v'")
@@ -103,3 +128,15 @@ for path, content in changes:
             os.unlink(temporary)
 
 print(f"Bumped all workspace crates from {current} to {target}")
+
+if with_tag:
+    paths = [str(path.relative_to(root)) for path, _ in changes]
+    subprocess.run(["git", "add", *paths], cwd=root, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", f"chore: bump version to {target}"], cwd=root, check=True
+    )
+    tag = f"v{target}"
+    subprocess.run(["git", "tag", tag], cwd=root, check=True)
+    print(f"Created tag {tag}")
+    if "--push" in options:
+        subprocess.run(["git", "push", "--tags"], cwd=root, check=True)
