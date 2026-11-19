@@ -52,7 +52,9 @@ jobs:
           crates=(resumable resumable-worker resumable-store-postgres-sqlx)
           for crate in "${crates[@]}"; do
             for attempt in $(seq 1 30); do
-              if curl --fail --silent --show-error "https://crates.io/api/v1/crates/$crate/$version" >/dev/null; then
+              if curl --fail --silent --show-error \
+                --user-agent "resumable-release-check (https://github.com/Natoandro/resumable)" \
+                "https://crates.io/api/v1/crates/$crate/$version" >/dev/null; then
                 break
               fi
               if [ "$attempt" -eq 30 ]; then
