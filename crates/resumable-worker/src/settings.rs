@@ -1,10 +1,15 @@
 use std::time::Duration;
 
+/// Controls polling, concurrency, and graceful shutdown.
 #[derive(Clone, Copy, Debug)]
 pub struct WorkerSettings {
+    /// Whether to spawn a worker. Defaults to false.
     pub enabled: bool,
+    /// Maximum simultaneous executions in this worker.
     pub concurrency: usize,
+    /// Time between discovery ticks. Must be nonzero when enabled.
     pub poll_interval: Duration,
+    /// Time to drain active executions before aborting their tasks.
     pub shutdown_timeout: Duration,
 }
 

@@ -2,11 +2,10 @@
 
 `resumable-worker` depends on `resumable` for execution identifiers, operation keys, and run
 errors. It provides portable runnable-source and execution-runner contracts, an asynchronous
-operation registry, worker settings, and the polling loop. It has no dependency on Planum, SQLx,
-PostgreSQL, or application schema.
+operation registry, worker settings, and the polling loop. Applications provide persistence and their own schema.
 
 ```text
-Planum application ──> resumable-worker ──> resumable
+Application        ──> resumable-worker ──> resumable
        │                                      ▲
        └──> resumable-store-postgres-sqlx ─────┘
 ```

@@ -30,6 +30,10 @@ impl<S: Store, C: ValueCodec> Engine<S, C> {
             .await
     }
 
+    /// Resume a stored operation with its original input and access to durable steps.
+    ///
+    /// The operation key must match the stored name and version. Completed executions return
+    /// their persisted result without invoking the body.
     pub async fn resume_with_context<I, O, E, F, Fut>(
         &self,
         id: ExecutionId,

@@ -8,20 +8,25 @@ use tokio::{
 
 use crate::WorkerSettings;
 
+/// A boxed future returned by a discovery or execution adapter.
 pub type WorkerFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+/// A candidate execution and its stored operation version.
 pub struct RunnableExecution {
     pub id: ExecutionId,
     pub operation: OperationKey,
 }
 
+/// Persistence-backed discovery of candidates eligible to run.
 pub trait RunnableSource: Send + Sync + 'static {
+    /// Report runnable operation versions absent from the supplied set.
     fn unsupported_operations<'a>(
         &'a self,
         supported: &'a [OperationKey],
     ) -> WorkerFuture<'a, Result<Vec<OperationKey>, String>>;
 
+    /// Return at most `limit` runnable candidates for the supported operation versions.
     fn runnable_executions<'a>(
         &'a self,
         supported: &'a [OperationKey],
@@ -29,8 +34,11 @@ pub trait RunnableSource: Send + Sync + 'static {
     ) -> WorkerFuture<'a, Result<Vec<RunnableExecution>, String>>;
 }
 
+/// Application dispatch for operations understood by this worker.
 pub trait ExecutionRunner: Send + Sync + 'static {
+    /// Return the exact operation names and versions this runner can execute.
     fn supported_operations(&self) -> WorkerFuture<'_, Vec<OperationKey>>;
+    /// Acquire and run the execution through the application engine.
     fn run(
         &self,
         id: ExecutionId,
@@ -38,12 +46,14 @@ pub trait ExecutionRunner: Send + Sync + 'static {
     ) -> WorkerFuture<'_, Result<(), RunError>>;
 }
 
+/// Handle for stopping a running polling task.
 pub struct ResumableWorkerHandle {
     stop: tokio::sync::oneshot::Sender<()>,
     join: JoinHandle<()>,
 }
 
 impl ResumableWorkerHandle {
+    /// Stop polling and await in-flight work, aborting it after the configured timeout.
     pub async fn shutdown(self) {
         let _ = self.stop.send(());
         if let Err(error) = self.join.await {
@@ -52,6 +62,9 @@ impl ResumableWorkerHandle {
     }
 }
 
+/// Start polling on the current Tokio runtime. Returns `None` when disabled.
+///
+/// Use a runtime with time enabled and a nonzero poll interval.
 pub fn start(
     source: Arc<dyn RunnableSource>,
     runner: Arc<dyn ExecutionRunner>,

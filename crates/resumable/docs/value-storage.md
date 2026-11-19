@@ -1,11 +1,10 @@
-# Stored values and metadata
+## Stored values and metadata
 
-`StoredValue` keeps payload bytes opaque and carries a codec identifier and schema version beside
-them. The default `JsonCodec` uses codec `serde-json` and schema version `1`, as defined in the
-[v0.1 architecture](architecture.md). Applications can implement `ValueCodec` for another stable
-format; codec IDs and schema versions must continue to select a compatible decoder after restart.
+[`StoredValue`](https://docs.rs/resumable/latest/resumable/struct.StoredValue.html) keeps payload bytes opaque and carries a codec identifier and schema version beside
+them. The default [`JsonCodec`](https://docs.rs/resumable/latest/resumable/struct.JsonCodec.html) uses codec `serde-json` and schema version `1`. Applications can implement [`ValueCodec`](https://docs.rs/resumable/latest/resumable/trait.ValueCodec.html) for another stable format.
+Codec IDs and schema versions must continue to select a compatible decoder after restart.
 
-Defaults and public bounds are defined together in `resumable::limits`. The core limits each
+Defaults and public bounds are defined together in [`limits`](https://docs.rs/resumable/latest/resumable/limits/index.html). The core limits each
 encoded value to 16 MiB. It limits execution metadata to 64 labels, 64 UTF-8 bytes per key,
 256 UTF-8 bytes per value, and 8 KiB total key and value bytes. These bounds apply to constructors
 and deserialization. Oversized or invalid data returns an explicit error.

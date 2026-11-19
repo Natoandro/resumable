@@ -1,46 +1,22 @@
 # resumable-store-postgres-sqlx
 
-PostgreSQL adapter for the generic [resumable](../resumable/README.md) crate.
+PostgreSQL persistence for the [resumable](https://docs.rs/resumable) engine. See the
+[crate documentation](https://docs.rs/resumable-store-postgres-sqlx) for database setup,
+runnable discovery, and application transaction integration.
 
-The [adapter architecture draft](docs/architecture.md) describes package naming, persistence,
-transaction integration, independent migrations, and future database implementations.
+## Development
 
-This crate implements the PostgreSQL Store for the portable contract, an independent transactional
-migration runner, and explicit schema validation. It accepts a caller-provided `PgPool` and does not
-depend on the Planum server crate.
+After changing a checked query, set `DATABASE_URL` to a migrated development database and
+refresh the package-local `.sqlx/` cache from the adapter directory:
 
-It depends on resumable and accepts explicit pools/configuration. It owns SQLx/PostgreSQL query
-metadata in its local `.sqlx/` directory, separate from `server/.sqlx/`. After adding checked SQLx
-queries, prepare and check that cache from this directory with:
-
-```bash
-cd crates/resumable-store-postgres-sqlx
-DATABASE_URL=postgres://planum:planum@localhost:5432/planum cargo sqlx prepare -- --all-targets
+```sh
+cargo sqlx prepare -- --all-targets
 SQLX_OFFLINE=true cargo check --all-targets
 ```
 
-Create the schema explicitly before constructing application workers:
+Set `RESUMABLE_TEST_DATABASE_URL` to a disposable PostgreSQL database and run the integration
+suite from the workspace root:
 
-```rust
-use resumable_store_postgres_sqlx::{migrate, validate_schema, PostgresStore};
-
-async fn initialize(pool: sqlx::PgPool) -> Result<PostgresStore, resumable::StoreError> {
-	migrate(&pool).await?;
-	validate_schema(&pool).await?;
-	Ok(PostgresStore::new(pool))
-}
+```sh
+SQLX_OFFLINE=true cargo test -p resumable-store-postgres-sqlx --test postgres
 ```
-
-The migration history table is fixed as `resumable_migrations`. Store construction does not run DDL.
-The PostgreSQL integration suite uses the disposable `planum_test` database created by the root
-Compose setup by default. Set `RESUMABLE_TEST_DATABASE_URL` to override it when running the suite
-against a different disposable database:
-
-```bash
-cargo test -p resumable-store-postgres-sqlx --test postgres
-```
-
-Applications supply authorization, operation callbacks, provider clients, domain transactions,
-dispatch, and API presentation. This adapter has no dependency on any application server.
-
-The adapter is published independently and depends on the `resumable` core crate.

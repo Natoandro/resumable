@@ -233,10 +233,8 @@
 
 					<h2 id="current-adapter">Current adapter state</h2>
 					<p>
-						<code>resumable-store-postgres-sqlx</code> currently contains only its crate scaffold.
-						There is no PostgreSQL schema or production Store implementation yet.
-						<code>reference::MemoryStore</code> is the current executable implementation and is
-						intended for tests and examples, not process restarts or production durability.
+						The PostgreSQL adapter implements durable storage, migrations, and runnable discovery.
+						<code>reference::MemoryStore</code> provides in-memory storage for tests and examples.
 					</p>
 
 					<footer class="doc-footer">

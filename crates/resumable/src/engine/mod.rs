@@ -32,6 +32,9 @@ pub use inspection::{ExecutionInspection, InspectedStep};
 pub use retry::{Backoff, RetryPolicy, RetryPolicyError, StepOptions};
 pub use step_context::StepContext;
 
+/// Access to durable steps and lease management for the active execution.
+///
+/// Run step calls sequentially. Cloning the context shares the same lease.
 pub struct ExecutionContext<S, C> {
     store: Arc<S>,
     codec: Arc<C>,
@@ -67,12 +70,14 @@ pub struct Engine<S, C = JsonCodec> {
 }
 
 impl<S: Store> Engine<S, JsonCodec> {
+    /// Create an engine with the JSON codec and default execution settings.
     pub fn new(store: S) -> Self {
         Self::with_config(store, JsonCodec, EngineConfig::default())
     }
 }
 
 impl<S, C> Engine<S, C> {
+    /// Create an engine with an explicit codec and execution settings.
     pub fn with_config(store: S, codec: C, config: EngineConfig) -> Self {
         Self {
             store: Arc::new(store),
@@ -81,10 +86,12 @@ impl<S, C> Engine<S, C> {
         }
     }
 
+    /// Borrow the underlying persistence adapter.
     pub fn store(&self) -> &S {
         &self.store
     }
 
+    /// Borrow the codec used for inputs, step results, and execution results.
     pub fn codec(&self) -> &C {
         &self.codec
     }

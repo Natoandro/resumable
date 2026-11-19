@@ -1,20 +1,26 @@
 use super::*;
 use resumable::*;
 
+/// PostgreSQL implementation of the portable [`Store`] contract.
 #[derive(Clone, Debug)]
 pub struct PostgresStore {
     pub(super) pool: PgPool,
 }
 
 impl PostgresStore {
+    /// Wrap a caller-provided pool. Apply migrations separately with [`crate::migrate`].
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
 
+    /// Borrow the pool used by this store.
     pub fn pool(&self) -> &PgPool {
         &self.pool
     }
 
+    /// Discover up to `limit` eligible executions for the supplied operation versions.
+    ///
+    /// The limit must be between 1 and 1000. Discovery leaves lease acquisition to the caller.
     pub async fn runnable_executions(
         &self,
         supported: &[OperationKey],
@@ -23,6 +29,7 @@ impl PostgresStore {
         super::runnable::runnable_executions(&self.pool, supported, limit).await
     }
 
+    /// List eligible operation versions absent from the supplied supported set.
     pub async fn unsupported_runnable_operations(
         &self,
         supported: &[OperationKey],

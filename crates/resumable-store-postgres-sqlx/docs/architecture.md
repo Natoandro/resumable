@@ -1,11 +1,8 @@
 # PostgreSQL adapter architecture
 
-Status: draft for discussion. Package naming is settled as `resumable-store-postgres-sqlx`; API
-shapes and future release ownership remain proposals. This document does not authorize publication.
-
 The [core specification](../../resumable/docs/specification.md) defines required behavior; the
 [core architecture](../../resumable/docs/architecture.md) defines execution semantics. This document
-describes how a PostgreSQL implementation supplies those guarantees and integrates with Planum.
+describes how a PostgreSQL implementation supplies those guarantees and integrates with applications.
 
 ## Package names and future adapters
 
@@ -44,9 +41,7 @@ inspection queries, and bounded discovery of eligible work. The application owns
 worker lifecycle, authorization, provider clients, domain records, and presentation. Actor and entity
 links belong in application records, outside generic execution metadata.
 
-The core and adapter packages remain in the DACB workspace for now. When extracted later, move the
-core and its adapters together into one repository. Publication and release ownership for that
-repository remain to be decided.
+The core and adapter share this workspace and are published as separate packages.
 
 ## Connections and transactions
 
@@ -73,7 +68,7 @@ the durable mutation receipt returns the recorded outcome. Keep the same request
 
 ## Persistence model
 
-Use fixed `resumable_` names for runtime tables. Proposed logical records are:
+Use fixed `resumable_` names for runtime tables. The logical records are:
 
 - Executions: immutable operation/input identity, status, revision, retry eligibility, cancellation,
   lease owner/token/claim identity, expiry, and retained fencing generation.
@@ -83,15 +78,9 @@ Use fixed `resumable_` names for runtime tables. Proposed logical records are:
 - Mutation receipts: request identity/fingerprint and sufficient outcome data to reconcile identical
   mutations after an uncertain commit, before evaluating current ownership.
 
-RS-016 must turn these records into concrete columns, checks, foreign keys, uniqueness constraints,
-and indexes. Enforce core value bounds in storage where possible. Preserve encoded input/result
-bytes and exact step-name comparison. Receipts must not cascade away while their execution remains
-recoverable; retention must follow the core's identity and recovery guarantees.
-
 ### PostgreSQL schema
 
-Adapter migrations are tracked independently of `server/migrations/` and the application's
-`_sqlx_migrations` history:
+Adapter migrations are tracked independently of application migrations:
 
 - `resumable_executions` stores the exact input/result envelopes as codec, schema version, and
   bytes; metadata; lifecycle/revision; cancellation; failure; and the current lease plus retained
@@ -126,13 +115,6 @@ observational values and never authorize ownership. The expired-lease index is o
 the due-retry index is ordered by `next_attempt_at`. Discovery must still recheck eligibility and
 ownership atomically when claiming.
 
-The adapter migration is independent of application tables. At the time of this design, existing
-backup and invitation work had separate dispatch owners. RS-020 later moved invitation delivery
-fully onto resumable execution and removed its former table because there was no queued work to
-preserve. Backup execution remains an application-owned integration concern. Adapter migrations and
-SQLx offline metadata belong in `crates/resumable-store-postgres-sqlx/`; server queries and
-migrations remain package-local to `server/`.
-
 The initial schema uses the fixed `resumable_migrations` history name. The adapter-owned runner
 serializes migration callers with a PostgreSQL advisory lock, verifies the SHA-256 checksum, and
 applies the embedded SQL and history record in one transaction. Store construction does not run
@@ -161,7 +143,7 @@ according to the final query predicates; finding a candidate never reserves it b
 
 The adapter owns embedded SQL files in its package's `migrations/` directory and an independent
 version sequence starting at `0001`. Application migration versions may overlap because the histories
-are separate. Never place adapter migrations in `server/migrations/` or its `_sqlx_migrations` table.
+are separate. The adapter tracks its migration history in `resumable_migrations`.
 
 The default history table is `resumable_migrations`. The component name identifies ownership;
 database and driver names belong in package names. Replacing an implementation does not implicitly
@@ -203,8 +185,7 @@ migrations. Operational rollback means running a compatible binary or an explici
 procedure; do not assume automatic down migrations preserve execution history.
 
 Keep `.sqlx/` package-local and regenerate it against the adapter's migrated PostgreSQL schema.
-Offline compilation must cover both the server and adapter. Preparation tooling must apply adapter
-migrations before queries that reference their tables are checked.
+Apply the adapter migrations before preparing checked queries that reference its tables.
 
 ## SQLite and additional implementations
 
@@ -217,22 +198,9 @@ Driver-specific transaction extensions stay in their concrete package. Applicati
 different driver can still use the portable Store API, but shared domain transactions require
 compatible connection and transaction types or a separately designed integration mechanism.
 
-## Coexistence and verification
+## Verification
 
-Existing `backup_execution_operations` keeps its history and current dispatch owner during schema
-introduction. Adapter installation does not enqueue, convert, or resume its work. Invitation email
-delivery is now resumable-only; RS-020 established that no prior queued work needed import.
-Production backup-worker rollout must provide a recovery path for existing histories and maintain
-one dispatch owner throughout cutover.
-
-RS-017 verifies Store conformance, restart recovery, uncertain commits, concurrent claims,
-stale-owner rejection, retry deadlines, and rollback for Store-owned transactions. RS-018 verifies
-caller-owned transaction commit and rollback, uncertain-commit recovery, and lease-loss behavior.
-Migration verification should cover concurrent callers and checksum/version incompatibilities.
-The runner uses one fixed history name; custom history names are not supported.
-
-## Decisions for review
-
-- Decide release and publication ownership for the future repository containing the core and adapters.
-- Define the later adjacent-version compatibility window and rollout gates before enabling
-  mixed-version workers; the initial policy requires an exact worker/schema version match.
+The PostgreSQL integration suite covers Store conformance, concurrent claims, stale-owner
+rejection, retry deadlines, and transaction recovery. It exercises both Store-owned and caller-owned
+transactions, including rollback and recovery after an uncertain commit. See the
+[adapter README](../README.md) for the test command.

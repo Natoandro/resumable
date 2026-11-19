@@ -16,6 +16,10 @@ impl<S: Store, C: ValueCodec + 'static> ExecutionContext<S, C> {
         self.step_with(name, StepOptions::default(), body).await
     }
 
+    /// Run a named step using explicit retry options.
+    ///
+    /// Keep the retry options consistent across resumes. An interrupted attempt can run again,
+    /// so use the identifiers in [`StepContext`] to reconcile or deduplicate external effects.
     pub async fn step_with<T, E, F, Fut>(
         &self,
         name: impl Into<String>,

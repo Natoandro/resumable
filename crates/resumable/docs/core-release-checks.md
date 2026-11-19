@@ -1,7 +1,6 @@
 # Core release checks
 
-Run these checks from the repository root. They apply to `resumable` and do not require Planum
-services.
+Run these checks from the repository root. They apply to `resumable` and run without external services.
 
 ```bash
 cargo fmt --all -- --check

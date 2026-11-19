@@ -51,6 +51,12 @@ jobs:
 
       - run: cargo test -p resumable -p resumable-worker --locked
 
+      - run: cargo test -p resumable-store-postgres-sqlx --doc --locked
+
+      - run: cargo doc --workspace --no-deps --locked
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+
       - run: cargo test -p resumable-store-postgres-sqlx --test postgres --locked
 
       - run: cargo +1.85.0 check --workspace --all-targets --locked

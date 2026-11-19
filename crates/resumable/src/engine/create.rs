@@ -21,6 +21,7 @@ impl<S: Store, C: ValueCodec> Engine<S, C> {
             .map(|result| (id, result))
     }
 
+    /// Create and run an execution with a generated ID and access to durable steps.
     pub async fn start_with_context<I, O, E, F, Fut>(
         &self,
         operation: OperationKey,
@@ -63,6 +64,9 @@ impl<S: Store, C: ValueCodec> Engine<S, C> {
             .await
     }
 
+    /// Create or reuse a caller-identified execution and run it with access to durable steps.
+    ///
+    /// Retries of this call must use the same operation and encoded input.
     pub async fn start_with_id_and_context<I, O, E, F, Fut>(
         &self,
         id: ExecutionId,

@@ -4,11 +4,14 @@ use resumable::OperationKey;
 use serde_json::Value;
 use tokio::sync::RwLock;
 
+/// An asynchronous handler result with JSON output or an application error.
 pub type OperationHandlerFuture = Pin<Box<dyn Future<Output = Result<Value, String>> + Send>>;
 
+/// A shareable callback taking JSON input and the two caller-defined contexts.
 pub type OperationHandler<Context, ExecutionContext> =
     Arc<dyn Fn(Value, Context, ExecutionContext) -> OperationHandlerFuture + Send + Sync>;
 
+/// An asynchronous registry keyed by exact operation name and version.
 pub struct OperationRegistry<Context, ExecutionContext> {
     operations: RwLock<HashMap<OperationKey, OperationHandler<Context, ExecutionContext>>>,
 }
@@ -30,6 +33,7 @@ impl<Context, ExecutionContext> std::fmt::Debug for OperationRegistry<Context, E
 }
 
 impl<Context, ExecutionContext> OperationRegistry<Context, ExecutionContext> {
+    /// Register a handler. Returns an error if the same key is already registered.
     pub async fn register<F, Fut>(&self, key: OperationKey, handler: F) -> Result<(), String>
     where
         F: Fn(Value, Context, ExecutionContext) -> Fut + Send + Sync + 'static,
@@ -48,6 +52,7 @@ impl<Context, ExecutionContext> OperationRegistry<Context, ExecutionContext> {
         Ok(())
     }
 
+    /// Return the registered keys sorted by name and then version.
     pub async fn keys(&self) -> Vec<OperationKey> {
         let mut keys = self
             .operations
@@ -64,6 +69,7 @@ impl<Context, ExecutionContext> OperationRegistry<Context, ExecutionContext> {
         keys
     }
 
+    /// Look up a handler for the exact operation key.
     pub async fn handler(
         &self,
         key: &OperationKey,
