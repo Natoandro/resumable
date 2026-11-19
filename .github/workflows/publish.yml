@@ -34,40 +34,31 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
-      - name: Wait for resumable to appear in the registry index
-        env:
-          RELEASE_VERSION: ${{ github.ref_name }}
-        run: |
-          version="${RELEASE_VERSION#v}"
-          for attempt in $(seq 1 30); do
-            if curl --fail --silent --show-error "https://crates.io/api/v1/crates/resumable/$version" >/dev/null; then
-              exit 0
-            fi
-            sleep 10
-          done
-          echo "resumable $version did not become available on crates.io" >&2
-          exit 1
-
       - name: Publish resumable-worker
         run: cargo publish -p resumable-worker --locked
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
-      - name: Wait for resumable-worker to appear in the registry index
-        env:
-          RELEASE_VERSION: ${{ github.ref_name }}
-        run: |
-          version="${RELEASE_VERSION#v}"
-          for attempt in $(seq 1 30); do
-            if curl --fail --silent --show-error "https://crates.io/api/v1/crates/resumable-worker/$version" >/dev/null; then
-              exit 0
-            fi
-            sleep 10
-          done
-          echo "resumable-worker $version did not become available on crates.io" >&2
-          exit 1
-
       - name: Publish resumable-store-postgres-sqlx
         run: cargo publish -p resumable-store-postgres-sqlx --locked
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Wait for all crates to appear in the registry index
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: |
+          version="${RELEASE_VERSION#v}"
+          crates=(resumable resumable-worker resumable-store-postgres-sqlx)
+          for crate in "${crates[@]}"; do
+            for attempt in $(seq 1 30); do
+              if curl --fail --silent --show-error "https://crates.io/api/v1/crates/$crate/$version" >/dev/null; then
+                break
+              fi
+              if [ "$attempt" -eq 30 ]; then
+                echo "$crate $version did not become available on crates.io" >&2
+                exit 1
+              fi
+              sleep 10
+            done
+          done
