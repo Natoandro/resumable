@@ -14,6 +14,9 @@ Start with the core crate to define operations and steps. Use the in-memory stor
 the PostgreSQL adapter to persist executions across process restarts, and the worker when your
 application needs polling. The crate documentation includes setup examples and API contracts.
 
+Follow the [PostgreSQL worker walkthrough](https://docs.rs/resumable/latest/resumable/#run-and-resume-a-postgresql-backed-worker)
+to enqueue an operation, interrupt its worker, and resume it in a new process.
+
 Try the examples from a checkout:
 
 ```sh

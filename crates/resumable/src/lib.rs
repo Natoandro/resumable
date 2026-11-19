@@ -32,6 +32,7 @@
 //! ```
 #![doc = include_str!("../docs/usage.md")]
 #![doc = include_str!("../docs/value-storage.md")]
+#![doc = include_str!("../docs/postgres-worker.md")]
 #![forbid(unsafe_code)]
 
 pub mod conformance;

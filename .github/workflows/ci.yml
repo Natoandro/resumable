@@ -59,4 +59,12 @@ jobs:
 
       - run: cargo test -p resumable-store-postgres-sqlx --test postgres --locked
 
+      - name: Run the PostgreSQL worker walkthrough
+        run: |
+          execution_id=$(cat /proc/sys/kernel/random/uuid)
+          status=0
+          cargo run --locked -p resumable-store-postgres-sqlx --example postgres_worker -- interrupt "$execution_id" || status=$?
+          test "$status" -eq 42
+          cargo run --locked -p resumable-store-postgres-sqlx --example postgres_worker -- resume "$execution_id"
+
       - run: cargo +1.85.0 check --workspace --all-targets --locked

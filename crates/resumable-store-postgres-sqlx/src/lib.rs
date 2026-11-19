@@ -1,5 +1,8 @@
 //! PostgreSQL persistence for the [`resumable`] execution engine.
 //!
+//! See the [PostgreSQL worker walkthrough](https://docs.rs/resumable/latest/resumable/#run-and-resume-a-postgresql-backed-worker)
+//! for an example that persists work and resumes it after a process restart.
+//!
 //! # Database setup
 //!
 //! Run [`migrate`] with a pool that can apply schema changes, then call [`validate_schema`]

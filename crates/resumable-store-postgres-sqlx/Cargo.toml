@@ -21,4 +21,5 @@ tracing.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
+resumable-worker = { version = "0.1.1", path = "../resumable-worker" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

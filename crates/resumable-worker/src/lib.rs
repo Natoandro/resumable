@@ -11,6 +11,9 @@
 //! to true. Call [`ResumableWorkerHandle::shutdown`] to stop discovery and drain in-flight
 //! work up to the configured timeout. Aborted work can be picked up after its lease expires.
 //!
+//! See the [PostgreSQL worker walkthrough](https://docs.rs/resumable/latest/resumable/#run-and-resume-a-postgresql-backed-worker)
+//! for an example that persists work and resumes it after a process restart.
+//!
 //! # Standalone example
 //!
 //! This example wires an in-memory source, operation registry, and runner together.

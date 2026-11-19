@@ -874,6 +874,7 @@ name = "resumable-store-postgres-sqlx"
 version = "0.1.1"
 dependencies = [
  "resumable",
+ "resumable-worker",
  "serde",
  "serde_json",
  "sha2",
