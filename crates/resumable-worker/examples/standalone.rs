@@ -14,6 +14,7 @@ impl RunnableSource for InMemorySource {
     fn unsupported_operations<'a>(
         &'a self,
         _supported: &'a [OperationKey],
+        _failed_execution_policy: resumable::FailedExecutionPolicy,
     ) -> WorkerFuture<'a, Result<Vec<OperationKey>, String>> {
         Box::pin(async { Ok(Vec::new()) })
     }
@@ -21,6 +22,7 @@ impl RunnableSource for InMemorySource {
     fn runnable_executions<'a>(
         &'a self,
         _supported: &'a [OperationKey],
+        _failed_execution_policy: resumable::FailedExecutionPolicy,
         limit: u32,
     ) -> WorkerFuture<'a, Result<Vec<RunnableExecution>, String>> {
         Box::pin(async move {

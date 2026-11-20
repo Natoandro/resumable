@@ -24,17 +24,25 @@ impl PostgresStore {
     pub async fn runnable_executions(
         &self,
         supported: &[OperationKey],
+        failed_execution_policy: FailedExecutionPolicy,
         limit: u32,
     ) -> Result<Vec<super::RunnableExecution>, StoreError> {
-        super::runnable::runnable_executions(&self.pool, supported, limit).await
+        super::runnable::runnable_executions(&self.pool, supported, failed_execution_policy, limit)
+            .await
     }
 
     /// List eligible operation versions absent from the supplied supported set.
     pub async fn unsupported_runnable_operations(
         &self,
         supported: &[OperationKey],
+        failed_execution_policy: FailedExecutionPolicy,
     ) -> Result<Vec<OperationKey>, StoreError> {
-        super::runnable::unsupported_runnable_operations(&self.pool, supported).await
+        super::runnable::unsupported_runnable_operations(
+            &self.pool,
+            supported,
+            failed_execution_policy,
+        )
+        .await
     }
 }
 

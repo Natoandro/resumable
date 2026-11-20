@@ -1,5 +1,5 @@
 use super::*;
-use resumable::{ExecutionId, OperationKey};
+use resumable::{ExecutionId, FailedExecutionPolicy, OperationKey};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunnableExecution {
@@ -23,6 +23,7 @@ struct UnsupportedOperationRow {
 pub async fn runnable_executions(
     pool: &PgPool,
     supported: &[OperationKey],
+    failed_execution_policy: FailedExecutionPolicy,
     limit: u32,
 ) -> Result<Vec<RunnableExecution>, StoreError> {
     if limit == 0 || limit > 1000 {
@@ -42,6 +43,7 @@ pub async fn runnable_executions(
         .map(|key| i64::from(key.version()))
         .collect::<Vec<_>>();
     let limit = i64::from(limit);
+    let resume_failed = failed_execution_policy == FailedExecutionPolicy::Resume;
     let rows = sqlx::query_as!(
         RunnableRow,
         "WITH clock AS (SELECT resumable_now() AS now)
@@ -49,23 +51,24 @@ pub async fn runnable_executions(
 		FROM resumable_executions e
 		CROSS JOIN clock
 		WHERE (
-			e.status IN ('pending', 'failed')
+			e.status = 'pending'
+			OR (e.status = 'failed' AND $4)
 			OR (e.status = 'running' AND e.lease_expires_at <= clock.now)
 		)
 		AND (e.run_at IS NULL OR e.run_at <= clock.now)
-		AND NOT EXISTS (
+		AND (e.cancellation_requested_at IS NOT NULL OR NOT EXISTS (
 			SELECT 1
 			FROM resumable_steps s
 			WHERE s.execution_id = e.id
 				AND s.next_attempt_at > clock.now
-		)
-		AND NOT EXISTS (
+		))
+		AND (e.cancellation_requested_at IS NOT NULL OR NOT EXISTS (
 			SELECT 1
 			FROM resumable_steps s
 			WHERE s.execution_id = e.id
 				AND s.status = 'failed'
 				AND s.failure_class <> 'retryable'
-		)
+		))
 		AND EXISTS (
 			SELECT 1
 			FROM unnest($1::text[], $2::bigint[]) AS supported(name, version)
@@ -77,6 +80,7 @@ pub async fn runnable_executions(
         &names,
         &versions,
         limit,
+        resume_failed,
     )
     .fetch_all(pool)
     .await
@@ -100,6 +104,7 @@ pub async fn runnable_executions(
 pub async fn unsupported_runnable_operations(
     pool: &PgPool,
     supported: &[OperationKey],
+    failed_execution_policy: FailedExecutionPolicy,
 ) -> Result<Vec<OperationKey>, StoreError> {
     let names = supported
         .iter()
@@ -109,6 +114,7 @@ pub async fn unsupported_runnable_operations(
         .iter()
         .map(|key| i64::from(key.version()))
         .collect::<Vec<_>>();
+    let resume_failed = failed_execution_policy == FailedExecutionPolicy::Resume;
     let rows = sqlx::query_as!(
         UnsupportedOperationRow,
         "WITH clock AS (SELECT resumable_now() AS now)
@@ -116,23 +122,24 @@ pub async fn unsupported_runnable_operations(
 		FROM resumable_executions e
 		CROSS JOIN clock
 		WHERE (
-			e.status IN ('pending', 'failed')
+			e.status = 'pending'
+			OR (e.status = 'failed' AND $3)
 			OR (e.status = 'running' AND e.lease_expires_at <= clock.now)
 		)
 		AND (e.run_at IS NULL OR e.run_at <= clock.now)
-		AND NOT EXISTS (
+		AND (e.cancellation_requested_at IS NOT NULL OR NOT EXISTS (
 			SELECT 1
 			FROM resumable_steps s
 			WHERE s.execution_id = e.id
 				AND s.next_attempt_at > clock.now
-		)
-		AND NOT EXISTS (
+		))
+		AND (e.cancellation_requested_at IS NOT NULL OR NOT EXISTS (
 			SELECT 1
 			FROM resumable_steps s
 			WHERE s.execution_id = e.id
 				AND s.status = 'failed'
 				AND s.failure_class <> 'retryable'
-		)
+		))
 		AND NOT EXISTS (
 			SELECT 1
 			FROM unnest($1::text[], $2::bigint[]) AS supported(name, version)
@@ -143,6 +150,7 @@ pub async fn unsupported_runnable_operations(
 		",
         &names,
         &versions,
+        resume_failed,
     )
     .fetch_all(pool)
     .await

@@ -1,5 +1,6 @@
 use resumable::{
-    ClaimOutcome, ExecutionId, MutationId, NewExecution, OperationKey, Store, Timestamp, WorkerId,
+    ClaimOutcome, ExecutionId, FailedExecutionPolicy, MutationId, NewExecution, OperationKey,
+    Store, Timestamp, WorkerId,
 };
 use resumable_store_postgres_sqlx::{PostgresStore, SCHEMA_VERSION, validate_schema_version};
 use sqlx::PgPool;
@@ -28,14 +29,21 @@ pub(super) async fn verify_runnable_discovery(store: &PostgresStore, pool: &PgPo
 
     assert!(
         store
-            .unsupported_runnable_operations(std::slice::from_ref(&supported))
+            .unsupported_runnable_operations(
+                std::slice::from_ref(&supported),
+                FailedExecutionPolicy::Reject
+            )
             .await
             .unwrap()
             .contains(&unsupported)
     );
     assert_eq!(
         store
-            .runnable_executions(std::slice::from_ref(&supported), 1)
+            .runnable_executions(
+                std::slice::from_ref(&supported),
+                FailedExecutionPolicy::Reject,
+                1
+            )
             .await
             .unwrap(),
         vec![resumable_store_postgres_sqlx::RunnableExecution {
@@ -54,7 +62,11 @@ pub(super) async fn verify_runnable_discovery(store: &PostgresStore, pool: &PgPo
     ));
     assert!(
         store
-            .runnable_executions(std::slice::from_ref(&supported), 1)
+            .runnable_executions(
+                std::slice::from_ref(&supported),
+                FailedExecutionPolicy::Reject,
+                1
+            )
             .await
             .unwrap()
             .is_empty()
@@ -63,7 +75,11 @@ pub(super) async fn verify_runnable_discovery(store: &PostgresStore, pool: &PgPo
     set_clock(pool, "2026-01-01 00:00:01+00").await;
     assert_eq!(
         store
-            .runnable_executions(std::slice::from_ref(&supported), 1)
+            .runnable_executions(
+                std::slice::from_ref(&supported),
+                FailedExecutionPolicy::Reject,
+                1
+            )
             .await
             .unwrap()
             .first()
@@ -91,14 +107,18 @@ async fn verify_scheduled_start(store: &PostgresStore, pool: &PgPool) {
     );
     assert!(
         store
-            .runnable_executions(std::slice::from_ref(&operation), 1)
+            .runnable_executions(
+                std::slice::from_ref(&operation),
+                FailedExecutionPolicy::Reject,
+                1
+            )
             .await
             .unwrap()
             .is_empty()
     );
     assert!(
         !store
-            .unsupported_runnable_operations(&[])
+            .unsupported_runnable_operations(&[], FailedExecutionPolicy::Reject)
             .await
             .unwrap()
             .contains(&operation)
@@ -113,7 +133,11 @@ async fn verify_scheduled_start(store: &PostgresStore, pool: &PgPool) {
 
     set_clock(pool, "2026-02-01 00:00:00+00").await;
     assert_eq!(
-        store.runnable_executions(&[operation], 1).await.unwrap()[0].id,
+        store
+            .runnable_executions(&[operation], FailedExecutionPolicy::Reject, 1)
+            .await
+            .unwrap()[0]
+            .id,
         id
     );
     assert!(matches!(

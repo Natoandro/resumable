@@ -20,10 +20,11 @@ impl RunnableSource for PostgresSource {
     fn unsupported_operations<'a>(
         &'a self,
         supported: &'a [OperationKey],
+        failed_execution_policy: resumable::FailedExecutionPolicy,
     ) -> WorkerFuture<'a, Result<Vec<OperationKey>, String>> {
         Box::pin(async move {
             self.0
-                .unsupported_runnable_operations(supported)
+                .unsupported_runnable_operations(supported, failed_execution_policy)
                 .await
                 .map_err(|error| error.to_string())
         })
@@ -32,12 +33,13 @@ impl RunnableSource for PostgresSource {
     fn runnable_executions<'a>(
         &'a self,
         supported: &'a [OperationKey],
+        failed_execution_policy: resumable::FailedExecutionPolicy,
         limit: u32,
     ) -> WorkerFuture<'a, Result<Vec<RunnableExecution>, String>> {
         Box::pin(async move {
             let candidates = self
                 .0
-                .runnable_executions(supported, limit)
+                .runnable_executions(supported, failed_execution_policy, limit)
                 .await
                 .map_err(|error| error.to_string())?;
             Ok(candidates

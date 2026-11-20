@@ -1,3 +1,4 @@
+use resumable::FailedExecutionPolicy;
 use std::time::Duration;
 
 /// Controls polling, concurrency, and graceful shutdown.
@@ -11,6 +12,8 @@ pub struct WorkerSettings {
     pub poll_interval: Duration,
     /// Time to drain active executions before aborting their tasks.
     pub shutdown_timeout: Duration,
+    /// Whether previously failed executions may be resumed by the runner.
+    pub failed_execution_policy: FailedExecutionPolicy,
 }
 
 impl Default for WorkerSettings {
@@ -20,6 +23,7 @@ impl Default for WorkerSettings {
             concurrency: 4,
             poll_interval: Duration::from_secs(2),
             shutdown_timeout: Duration::from_secs(30),
+            failed_execution_policy: FailedExecutionPolicy::Reject,
         }
     }
 }

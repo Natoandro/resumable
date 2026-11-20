@@ -1,6 +1,6 @@
 use std::{collections::HashSet, future::Future, pin::Pin, sync::Arc};
 
-use resumable::{ExecutionId, OperationKey, RunError};
+use resumable::{ExecutionId, FailedExecutionPolicy, OperationKey, RunError};
 use tokio::{
     task::{JoinHandle, JoinSet},
     time::{MissedTickBehavior, interval},
@@ -24,12 +24,14 @@ pub trait RunnableSource: Send + Sync + 'static {
     fn unsupported_operations<'a>(
         &'a self,
         supported: &'a [OperationKey],
+        failed_execution_policy: FailedExecutionPolicy,
     ) -> WorkerFuture<'a, Result<Vec<OperationKey>, String>>;
 
     /// Return at most `limit` runnable candidates for the supported operation versions.
     fn runnable_executions<'a>(
         &'a self,
         supported: &'a [OperationKey],
+        failed_execution_policy: FailedExecutionPolicy,
         limit: u32,
     ) -> WorkerFuture<'a, Result<Vec<RunnableExecution>, String>>;
 }
@@ -112,7 +114,7 @@ async fn run(
                     continue;
                 }
                 let supported = runner.supported_operations().await;
-                match source.unsupported_operations(&supported).await {
+                match source.unsupported_operations(&supported, settings.failed_execution_policy).await {
                     Ok(unknown) => for key in unknown {
                         if reported_unknown.insert(key.clone()) {
                             tracing::warn!(operation = ?key, "runnable execution has no compatible handler");
@@ -120,7 +122,7 @@ async fn run(
                     },
                     Err(error) => tracing::error!(?error, "could not inspect unsupported resumable operations"),
                 }
-                match source.runnable_executions(&supported, capacity as u32).await {
+                match source.runnable_executions(&supported, settings.failed_execution_policy, capacity as u32).await {
                     Ok(candidates) => for candidate in candidates {
                         if !active_ids.insert(candidate.id) {
                             continue;

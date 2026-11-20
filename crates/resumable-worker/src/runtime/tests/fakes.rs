@@ -36,6 +36,7 @@ impl RunnableSource for FakeSource {
     fn unsupported_operations<'a>(
         &'a self,
         _supported: &'a [OperationKey],
+        _failed_execution_policy: FailedExecutionPolicy,
     ) -> WorkerFuture<'a, Result<Vec<OperationKey>, String>> {
         Box::pin(async move {
             self.unsupported_calls.fetch_add(1, Ordering::SeqCst);
@@ -46,6 +47,7 @@ impl RunnableSource for FakeSource {
     fn runnable_executions<'a>(
         &'a self,
         _supported: &'a [OperationKey],
+        _failed_execution_policy: FailedExecutionPolicy,
         limit: u32,
     ) -> WorkerFuture<'a, Result<Vec<RunnableExecution>, String>> {
         Box::pin(async move {
@@ -128,6 +130,7 @@ pub(super) fn settings(concurrency: usize) -> WorkerSettings {
         concurrency,
         poll_interval: Duration::from_millis(5),
         shutdown_timeout: Duration::from_millis(50),
+        failed_execution_policy: FailedExecutionPolicy::Reject,
     }
 }
 
