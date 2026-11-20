@@ -38,6 +38,24 @@ impl<C: Clock> MemoryStore<C> {
         claim_id: MutationId,
         lease_duration_ms: u64,
     ) -> Result<ClaimOutcome, StoreError> {
+        self.acquire_execution_policy_inner(
+            id,
+            worker,
+            claim_id,
+            lease_duration_ms,
+            crate::FailedExecutionPolicy::Resume,
+        )
+        .await
+    }
+
+    pub(super) async fn acquire_execution_policy_inner(
+        &self,
+        id: ExecutionId,
+        worker: WorkerId,
+        claim_id: MutationId,
+        lease_duration_ms: u64,
+        policy: crate::FailedExecutionPolicy,
+    ) -> Result<ClaimOutcome, StoreError> {
         self.fault_before(FaultPoint::AcquireExecution)?;
         let mut state = self.lock()?;
         let now = self.clock.now();
@@ -70,6 +88,11 @@ impl<C: Clock> MemoryStore<C> {
             return Ok(ClaimOutcome::NotFound);
         };
         if record.status.is_terminal() {
+            return Ok(ClaimOutcome::Terminal(record.clone()));
+        }
+        if record.status == ExecutionStatus::Failed
+            && policy == crate::FailedExecutionPolicy::Reject
+        {
             return Ok(ClaimOutcome::Terminal(record.clone()));
         }
         if record.run_at.is_some_and(|at| at > now) {

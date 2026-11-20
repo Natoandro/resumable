@@ -24,6 +24,18 @@ impl<C: Clock> Store for MemoryStore<C> {
             .await
     }
 
+    async fn acquire_execution_with_policy(
+        &self,
+        id: ExecutionId,
+        worker: WorkerId,
+        claim_id: MutationId,
+        duration: u64,
+        policy: crate::FailedExecutionPolicy,
+    ) -> Result<ClaimOutcome, StoreError> {
+        self.acquire_execution_policy_inner(id, worker, claim_id, duration, policy)
+            .await
+    }
+
     async fn load_step(
         &self,
         execution: ExecutionId,

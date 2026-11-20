@@ -24,23 +24,30 @@ impl<S: Store, C: ValueCodec> Engine<S, C> {
         if let Some(result) = terminal_result(&record)? {
             return self.codec.decode(&result).map_err(RunError::Value);
         }
-        if record.status == ExecutionStatus::Failed
-            && self.config.failed_execution_policy == FailedExecutionPolicy::Reject
-        {
-            return Err(RunError::Failed);
-        }
         let input = record.input.as_ref().ok_or(RunError::MissingInput)?;
         let input: I = self.codec.decode(input)?;
         let claim_id = MutationId::new();
         let duration = self.config.lease_duration.as_millis().min(u64::MAX as u128) as u64;
         let claim = self
             .store
-            .acquire_execution(id, self.config.worker_id, claim_id, duration)
+            .acquire_execution_with_policy(
+                id,
+                self.config.worker_id,
+                claim_id,
+                duration,
+                self.config.failed_execution_policy,
+            )
             .await;
         let claim = match claim {
             Err(StoreError::Unavailable(_)) => {
                 self.store
-                    .acquire_execution(id, self.config.worker_id, claim_id, duration)
+                    .acquire_execution_with_policy(
+                        id,
+                        self.config.worker_id,
+                        claim_id,
+                        duration,
+                        self.config.failed_execution_policy,
+                    )
                     .await?
             }
             result => result?,
@@ -49,6 +56,9 @@ impl<S: Store, C: ValueCodec> Engine<S, C> {
             ClaimOutcome::Claimed(claim) => claim,
             ClaimOutcome::Busy => return Err(RunError::Busy),
             ClaimOutcome::Terminal(record) => {
+                if record.status == ExecutionStatus::Failed {
+                    return Err(RunError::Failed);
+                }
                 if let Some(result) = terminal_result(&record)? {
                     return self.codec.decode(&result).map_err(RunError::Value);
                 }

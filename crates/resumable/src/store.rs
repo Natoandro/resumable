@@ -1,6 +1,8 @@
 //! Portable atomic persistence contract. Adapters own transaction and clock implementations.
 
-use crate::{ExecutionId, ExecutionRecord, StepName, StepRecord, StoreError, WorkerId};
+use crate::{
+    ExecutionId, ExecutionRecord, FailedExecutionPolicy, StepName, StepRecord, StoreError, WorkerId,
+};
 use std::future::Future;
 
 mod requests;
@@ -42,7 +44,7 @@ pub trait Store: Send + Sync + 'static {
     /// terminal records are returned as `Terminal`; absent identities return `NotFound`. A
     /// successful claim increments fencing generation and revision before returning the record and
     /// ownership proof. Claiming a failed execution explicitly resumes it to Pending before moving
-    /// it to Running; callers must enforce their failed-execution policy before claiming.
+    /// it to Running.
     /// Each invocation uses a fresh claim ID. Retrying an ambiguous claim uses the same ID, worker,
     /// and duration; only that identical request may recover its current live claim. A separate
     /// claim ID must return Busy even for the same worker. Generation must increase across failures
@@ -53,6 +55,18 @@ pub trait Store: Send + Sync + 'static {
         worker: WorkerId,
         claim_id: MutationId,
         lease_duration_ms: u64,
+    ) -> impl Future<Output = Result<ClaimOutcome, StoreError>> + Send;
+
+    /// Atomically acquire an execution while enforcing the failed execution policy. With
+    /// `Reject`, a failed record must be returned as `Terminal` without changing it. This check
+    /// must serialize with the claim transition.
+    fn acquire_execution_with_policy(
+        &self,
+        id: ExecutionId,
+        worker: WorkerId,
+        claim_id: MutationId,
+        lease_duration_ms: u64,
+        policy: FailedExecutionPolicy,
     ) -> impl Future<Output = Result<ClaimOutcome, StoreError>> + Send;
 
     /// Load the unique step identified by `(execution, name)`, including result, failure, attempt,

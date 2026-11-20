@@ -44,6 +44,19 @@ impl Store for InterruptedBeginStore {
             .await
     }
 
+    async fn acquire_execution_with_policy(
+        &self,
+        id: ExecutionId,
+        worker: WorkerId,
+        claim_id: MutationId,
+        duration: u64,
+        policy: FailedExecutionPolicy,
+    ) -> Result<ClaimOutcome, StoreError> {
+        self.store
+            .acquire_execution_with_policy(id, worker, claim_id, duration, policy)
+            .await
+    }
+
     async fn load_step(
         &self,
         id: ExecutionId,

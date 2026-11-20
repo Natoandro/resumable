@@ -20,6 +20,24 @@ impl PostgresStore {
         claim_id: MutationId,
         lease_duration_ms: u64,
     ) -> Result<ClaimOutcome, StoreError> {
+        self.acquire_execution_policy_inner(
+            id,
+            worker,
+            claim_id,
+            lease_duration_ms,
+            resumable::FailedExecutionPolicy::Resume,
+        )
+        .await
+    }
+
+    pub(super) async fn acquire_execution_policy_inner(
+        &self,
+        id: ExecutionId,
+        worker: WorkerId,
+        claim_id: MutationId,
+        lease_duration_ms: u64,
+        policy: resumable::FailedExecutionPolicy,
+    ) -> Result<ClaimOutcome, StoreError> {
         if lease_duration_ms == 0 || lease_duration_ms > i64::MAX as u64 {
             return Err(conflict("lease duration is outside the PostgreSQL range"));
         }
@@ -41,6 +59,12 @@ impl PostgresStore {
         };
         let mut record = decode_execution(row.record)?;
         if record.status.is_terminal() {
+            transaction.commit().await.map_err(store_error)?;
+            return Ok(ClaimOutcome::Terminal(record));
+        }
+        if record.status == ExecutionStatus::Failed
+            && policy == resumable::FailedExecutionPolicy::Reject
+        {
             transaction.commit().await.map_err(store_error)?;
             return Ok(ClaimOutcome::Terminal(record));
         }
