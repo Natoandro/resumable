@@ -7,7 +7,7 @@ pub struct StepContext {
     pub(super) name: StepName,
     pub(super) attempt: u32,
     pub(super) fencing_token: u64,
-    pub(super) lease: crate::LeaseGuard,
+    pub(super) lease_provider: Arc<dyn Fn() -> crate::LeaseGuard + Send + Sync>,
     pub(super) cancellation_check: CancellationCheck,
     pub(super) progress_update: ProgressUpdateFn,
 }
@@ -51,7 +51,7 @@ impl StepContext {
     /// Encode the same operation result with the engine's configured codec before calling this.
     pub fn completion_request(&self, result: crate::StoredValue) -> crate::CompleteStep {
         crate::CompleteStep {
-            lease: self.lease.clone(),
+            lease: (self.lease_provider)(),
             name: self.name.clone(),
             expected_attempt: self.attempt,
             mutation_id: crate::MutationId::new(),

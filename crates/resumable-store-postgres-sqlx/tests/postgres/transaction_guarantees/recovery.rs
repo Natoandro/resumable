@@ -129,6 +129,14 @@ pub(super) async fn verify_callback_completion_observation(pool: &PgPool) {
                         let pool = callback_pool.clone();
                         async move {
                             let result = "callback-result".to_owned();
+                            step_context
+                                .progress_checked(resumable::Progress {
+                                    current: Some(1),
+                                    total: Some(2),
+                                    message: Some("domain write is next".into()),
+                                })
+                                .await
+                                .map_err(|error| error.to_string())?;
                             let completion =
                                 step_context.completion_request(JsonCodec.encode(&result).unwrap());
                             let mut transaction = pool.begin().await.unwrap();

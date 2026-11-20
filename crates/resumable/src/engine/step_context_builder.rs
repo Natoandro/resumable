@@ -8,7 +8,10 @@ impl<S: Store, C: ValueCodec + 'static> ExecutionContext<S, C> {
             name: step.name.clone(),
             attempt: step.attempt,
             fencing_token: self.lease().generation,
-            lease: self.lease(),
+            lease_provider: {
+                let execution = self.clone();
+                Arc::new(move || execution.lease())
+            },
             cancellation_check: {
                 let execution = self.clone();
                 Arc::new(move || {
