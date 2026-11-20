@@ -4,8 +4,6 @@ The workspace has a solid architecture for durable, versioned Rust operations. T
 
 ## Highest-priority findings
 
-2. **A concurrent failure can bypass `FailedExecutionPolicy::Reject`.** The engine checks a loaded snapshot, then claims by ID. If another owner fails the execution between those operations, the store can resume it. Enforce the policy as part of the atomic claim. [Engine](crates/resumable/src/engine/run.rs#L16) · [PostgreSQL claim](crates/resumable-store-postgres-sqlx/src/postgres/claims.rs#L122)
-
 3. **Progress and transactional checkpoints fail when composed.** `StepContext::completion_request()` uses the revision captured at step entry. A successful `progress_checked()` advances that revision, so PostgreSQL rejects a later checkpoint even when both calls are sequential. Build the request with the current lease revision and verify progress followed by a domain write and checkpoint in one transaction. [Step context](crates/resumable/src/engine/step_context.rs#L29) · [Lease validation](crates/resumable-store-postgres-sqlx/src/postgres/mod.rs#L145)
 
 4. **Worker shutdown can wait indefinitely during discovery.** The worker awaits discovery inside the polling branch, where it no longer polls the stop signal. The drain timeout starts after that branch returns. If an execution task panics, a separate bookkeeping issue clears every active ID and permits duplicate dispatch of unrelated work. Make discovery interruptible and remove only the failed task’s execution ID. [Worker loop and shutdown](crates/resumable-worker/src/runtime.rs#L92)

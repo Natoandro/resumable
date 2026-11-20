@@ -1,10 +1,12 @@
 use super::*;
 use std::sync::atomic::AtomicBool;
 
+#[derive(Clone, Copy)]
 pub(super) enum Interruption {
     Takeover,
     Expiry,
     ResponseLoss,
+    FailAfterLoad,
 }
 
 pub(super) struct InterruptedBeginStore {
@@ -29,7 +31,24 @@ impl Store for InterruptedBeginStore {
     }
 
     async fn load_execution(&self, id: ExecutionId) -> Result<Option<ExecutionRecord>, StoreError> {
-        self.store.load_execution(id).await
+        let record = self.store.load_execution(id).await?;
+        if matches!(self.interruption, Interruption::FailAfterLoad)
+            && self.once.swap(false, Ordering::SeqCst)
+        {
+            let guard = claim(&self.store, id, 30_000);
+            self.store
+                .fail_execution(FailExecution {
+                    lease: guard,
+                    mutation_id: MutationId::new(),
+                    failure: FailureRecord {
+                        class: FailureClass::Permanent,
+                        diagnostic: None,
+                        occurred_at: Timestamp(0),
+                    },
+                })
+                .await?;
+        }
+        Ok(record)
     }
 
     async fn acquire_execution(
@@ -78,6 +97,7 @@ impl Store for InterruptedBeginStore {
         let result = self.store.begin_step(request).await?;
         if self.once.swap(false, Ordering::SeqCst) {
             match self.interruption {
+                Interruption::FailAfterLoad => unreachable!(),
                 Interruption::Takeover => {
                     self.store.clock().advance(30_001);
                     let replacement = claim(&self.store, id, 30_000);

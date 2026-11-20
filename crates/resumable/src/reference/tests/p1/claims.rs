@@ -1,3 +1,4 @@
+use super::takeover_store::{InterruptedBeginStore, Interruption};
 use super::*;
 
 #[test]
@@ -93,5 +94,37 @@ fn engine_retries_an_ambiguous_claim_without_creating_another_generation() {
             .unwrap()
             .fencing_generation,
         1
+    );
+}
+
+#[test]
+fn reject_policy_does_not_resume_execution_failed_after_load() {
+    let store = MemoryStore::new(Timestamp(0));
+    let id = ExecutionId::new();
+    create(&store, id);
+    let interrupted = InterruptedBeginStore::new(store.clone(), Interruption::FailAfterLoad);
+    let engine = Engine::with_config(
+        interrupted,
+        JsonCodec,
+        EngineConfig {
+            failed_execution_policy: FailedExecutionPolicy::Reject,
+            ..EngineConfig::default()
+        },
+    );
+    let effects = AtomicU32::new(0);
+
+    let result =
+        block_on(
+            engine.resume_with_context::<(), (), String, _, _>(id, &operation(), |_, _| {
+                effects.fetch_add(1, Ordering::SeqCst);
+                async { Ok(()) }
+            }),
+        );
+
+    assert!(matches!(result, Err(RunError::Failed)));
+    assert_eq!(effects.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        block_on(store.load_execution(id)).unwrap().unwrap().status,
+        ExecutionStatus::Failed
     );
 }
