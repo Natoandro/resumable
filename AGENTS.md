@@ -23,7 +23,7 @@ Run these checks from the workspace root.
 
 Use Rust 2024 and rustfmt's four-space indentation. Use `snake_case` for modules, functions, and behavior-based test names. Group related concerns in child modules, such as `src/engine/`, with a `mod.rs` entry point. Keep unit tests near the code and PostgreSQL integration tests under the adapter's `tests/postgres/`.
 
-Use SQLx checked query macros and format SQL with one major clause, join, or predicate per line. Keep SQL lines within 100 characters. When a checked query changes, run `cargo sqlx prepare -- --all-targets` from the adapter directory with `DATABASE_URL` pointing to a migrated database. Commit the updated package-local `.sqlx/` cache.
+Use SQLx checked query macros and format SQL with one major clause, join, or predicate per line. Keep SQL lines within 100 characters. When a checked query or its schema changes, refresh and commit the package-local `.sqlx/` cache. Follow the database setup and cache refresh instructions in `CONTRIBUTING.md`, including the stale-cache bootstrap procedure when needed.
 
 ## Commits and Pull Requests
 

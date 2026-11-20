@@ -11,8 +11,7 @@ use sqlx::postgres::PgPoolOptions;
 
 fn test_database_url() -> String {
     std::env::var("RESUMABLE_TEST_DATABASE_URL")
-        .or_else(|_| std::env::var("TEST_DATABASE_URL"))
-        .unwrap_or_else(|_| "postgres://planum:planum@localhost:5432/planum_test".to_owned())
+        .expect("set RESUMABLE_TEST_DATABASE_URL to a disposable PostgreSQL database")
 }
 
 #[tokio::test]
