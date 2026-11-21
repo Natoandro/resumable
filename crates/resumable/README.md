@@ -15,6 +15,8 @@ retries, cancellation, and the store contract. The [worker](https://docs.rs/resu
 provides polling, and the [PostgreSQL adapter](https://docs.rs/resumable-store-postgres-sqlx)
 provides durable storage.
 
+See the [durable step macro proposal](docs/step-macro-proposal.md) for possible workflow syntax.
+
 ## Portable examples and release checks
 
 Runnable examples use fake object storage and a fake message provider, and run without external services or an async runtime:

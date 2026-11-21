@@ -4,6 +4,8 @@ Portable polling and operation-registry runtime for the [`resumable`](../resumab
 engine. The crate does not choose a database, validate application schema, authorize domain work,
 or implement operation bodies. Applications provide runnable discovery and execution adapters.
 
+See the [worker job macro proposal](docs/job-macro-proposal.md) for possible registration APIs.
+
 ## Use
 See the [crate documentation](https://docs.rs/resumable-worker) for setup and API reference.
 
