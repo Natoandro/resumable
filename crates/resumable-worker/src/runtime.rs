@@ -152,7 +152,7 @@ impl Worker {
             .runnable_executions(
                 &supported,
                 self.settings.failed_execution_policy,
-                capacity as u32,
+                u32::try_from(capacity).unwrap_or(u32::MAX),
             )
             .await
         {
