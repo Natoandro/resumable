@@ -5,7 +5,8 @@ use resumable_worker::{
     ExecutionRunner, OperationRegistry, RunnableExecution, RunnableSource, WorkerFuture,
     WorkerSettings, start,
 };
-use serde_json::{Value, json};
+use serde::Deserialize;
+use serde_json::json;
 use tokio::{sync::Notify, time::timeout};
 
 struct InMemorySource(tokio::sync::Mutex<VecDeque<RunnableExecution>>);
@@ -36,6 +37,16 @@ impl RunnableSource for InMemorySource {
 struct RegistryRunner {
     registry: Arc<OperationRegistry<(), ()>>,
     completed: Arc<Notify>,
+}
+
+#[derive(Deserialize)]
+struct GreetingInput {
+    message: String,
+}
+
+async fn greet(input: GreetingInput, (): (), (): ()) -> Result<(), std::convert::Infallible> {
+    println!("operation says: {}", input.message);
+    Ok(())
 }
 
 impl ExecutionRunner for RegistryRunner {
@@ -69,11 +80,7 @@ async fn main() {
     let operation = OperationKey::new("example.greeting", 1).unwrap();
     let registry = Arc::new(OperationRegistry::<(), ()>::default());
     registry
-        .register(operation.clone(), |input, (), ()| async move {
-            let message = input["message"].as_str().unwrap_or("hello");
-            println!("operation says: {message}");
-            Ok(Value::Null)
-        })
+        .register_typed(operation.clone(), greet)
         .await
         .unwrap();
     let completed = Arc::new(Notify::new());

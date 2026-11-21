@@ -890,6 +890,7 @@ name = "resumable-worker"
 version = "0.1.2"
 dependencies = [
  "resumable",
+ "serde",
  "serde_json",
  "tokio",
  "tracing",

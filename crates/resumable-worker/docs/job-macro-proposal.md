@@ -1,7 +1,8 @@
 # Worker job macro proposals
 
 These examples sketch optional APIs for defining and registering jobs. The
-current worker API uses `OperationKey::new` and `OperationRegistry::register`.
+current worker API uses `OperationKey::new`, `OperationRegistry::register`, and
+`OperationRegistry::register_typed`.
 The examples assume that the registry and handler functions are in scope.
 
 ## Register one job
@@ -54,7 +55,11 @@ Proposed function attribute and explicit registration:
 
 ```rust
 #[job(name = "billing.send_invoice", version = 1)]
-async fn send_invoice(input: InvoiceInput) -> Result<Receipt, OperationError> {
+async fn send_invoice(
+    input: InvoiceInput,
+    app: AppContext,
+    execution: JobExecutionContext,
+) -> Result<Receipt, OperationError> {
     // Job body
 }
 
@@ -62,13 +67,9 @@ async fn send_invoice(input: InvoiceInput) -> Result<Receipt, OperationError> {
 send_invoice_job::register(&registry).await?;
 ```
 
-Without the attribute, using a proposed typed helper:
+Without the attribute, register the same handler with the typed helper:
 
 ```rust
-async fn send_invoice(input: InvoiceInput) -> Result<Receipt, OperationError> {
-    // Same job body
-}
-
 let key = OperationKey::new("billing.send_invoice", 1)?;
 registry.register_typed(key, send_invoice).await?;
 ```
@@ -108,7 +109,7 @@ Keep the operation name and version explicit. They identify stored executions,
 so a function rename should leave the persisted name intact. Use a new version
 when the handler can no longer safely interpret data from the older version.
 
-Start with the typed helper if real handlers repeat JSON adaptation. Try
+Use the typed helper when handlers need JSON adaptation. Try
 `register_jobs!` if setup still repeats the same registration pattern. The
 `#[job]` attribute has the most value when registration and enqueueing both
 need the same typed descriptor.

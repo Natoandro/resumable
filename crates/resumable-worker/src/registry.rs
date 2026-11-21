@@ -1,6 +1,7 @@
-use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
+use std::{collections::HashMap, fmt::Display, future::Future, pin::Pin, sync::Arc};
 
 use resumable::OperationKey;
+use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use tokio::sync::RwLock;
 
@@ -50,6 +51,37 @@ impl<Context, ExecutionContext> OperationRegistry<Context, ExecutionContext> {
             }),
         );
         Ok(())
+    }
+
+    /// Register a handler that accepts typed input and returns typed output.
+    ///
+    /// On dispatch, the registry deserializes the JSON input before calling the
+    /// handler and serializes its successful output back to JSON. Conversion
+    /// failures and handler errors are returned as strings by the registered
+    /// handler. Registering an already registered key returns an error.
+    pub async fn register_typed<I, O, E, F, Fut>(
+        &self,
+        key: OperationKey,
+        handler: F,
+    ) -> Result<(), String>
+    where
+        I: DeserializeOwned,
+        O: Serialize,
+        E: Display,
+        F: Fn(I, Context, ExecutionContext) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<O, E>> + Send + 'static,
+    {
+        self.register(key, move |input, context, execution_context| {
+            let future = serde_json::from_value(input)
+                .map(|input| handler(input, context, execution_context))
+                .map_err(|error| format!("failed to deserialize operation input: {error}"));
+            async move {
+                let output = future?.await.map_err(|error| error.to_string())?;
+                serde_json::to_value(output)
+                    .map_err(|error| format!("failed to serialize operation output: {error}"))
+            }
+        })
+        .await
     }
 
     /// Return the registered keys sorted by name and then version.

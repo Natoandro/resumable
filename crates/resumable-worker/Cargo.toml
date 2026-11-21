@@ -12,6 +12,7 @@ categories = ["asynchronous", "development-tools"]
 
 [dependencies]
 resumable = { version = "0.1.0", path = "../resumable" }
+serde.workspace = true
 serde_json.workspace = true
 tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
 tracing.workspace = true
