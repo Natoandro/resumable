@@ -230,15 +230,17 @@ async fn unknown_operations_are_reported_without_dispatch() {
 }
 
 #[tokio::test]
-async fn runner_errors_and_panics_do_not_stop_the_worker() {
+async fn runner_errors_and_panics_allow_same_id_to_be_dispatched_again() {
     for mode in [RunnerMode::Fail, RunnerMode::Panic] {
         let operation = OperationKey::new("fake", 1).unwrap();
-        let source = Arc::new(FakeSource::new([candidate(ExecutionId::new(), operation)]));
+        let source = Arc::new(SameCandidateSource(candidate(
+            ExecutionId::new(),
+            operation,
+        )));
         let runner = Arc::new(FakeRunner::with_mode(Duration::ZERO, mode));
         let worker = start(source, runner.clone(), settings(1)).unwrap();
-        wait_for_calls(&runner, 1).await;
+        wait_for_calls(&runner, 2).await;
         worker.shutdown().await;
-        assert_eq!(runner.calls.load(Ordering::SeqCst), 1);
     }
 }
 
