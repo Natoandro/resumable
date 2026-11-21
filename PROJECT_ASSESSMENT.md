@@ -4,8 +4,6 @@ The workspace has a solid architecture for durable, versioned Rust operations. T
 
 ## Highest-priority findings
 
-4. **Worker shutdown can wait indefinitely during discovery.** The worker awaits discovery inside the polling branch, where it no longer polls the stop signal. The drain timeout starts after that branch returns. If an execution task panics, a separate bookkeeping issue clears every active ID and permits duplicate dispatch of unrelated work. Make discovery interruptible and remove only the failed task’s execution ID. [Worker loop and shutdown](crates/resumable-worker/src/runtime.rs#L92)
-
 5. **Default worker logs can expose application error text.** The engine omits persisted diagnostics by default but returns raw text in `RunError::Operation(String)`. The worker logs that error using `Debug`. Log error categories and identifiers by default, with detailed diagnostics available by opt-in. [Engine error path](crates/resumable/src/engine/run.rs#L87) · [Worker logging](crates/resumable-worker/src/runtime.rs#L159)
 
 ## Assessment by area

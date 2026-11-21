@@ -2,7 +2,142 @@ use super::*;
 mod fakes;
 
 use fakes::{FakeRunner, FakeSource, RunnerMode, candidate, settings, wait_for_calls};
-use std::{sync::atomic::Ordering, time::Duration};
+use std::{
+    future,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    },
+    time::Duration,
+};
+use tokio::sync::Notify;
+
+struct BlockingDiscovery {
+    entered: Notify,
+}
+
+impl RunnableSource for BlockingDiscovery {
+    fn unsupported_operations<'a>(
+        &'a self,
+        _supported: &'a [OperationKey],
+        _failed_execution_policy: FailedExecutionPolicy,
+    ) -> WorkerFuture<'a, Result<Vec<OperationKey>, String>> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+
+    fn runnable_executions<'a>(
+        &'a self,
+        _supported: &'a [OperationKey],
+        _failed_execution_policy: FailedExecutionPolicy,
+        _limit: u32,
+    ) -> WorkerFuture<'a, Result<Vec<RunnableExecution>, String>> {
+        Box::pin(async move {
+            self.entered.notify_one();
+            future::pending::<Result<Vec<RunnableExecution>, String>>().await
+        })
+    }
+}
+
+#[tokio::test]
+async fn shutdown_interrupts_blocked_discovery() {
+    let source = Arc::new(BlockingDiscovery {
+        entered: Notify::new(),
+    });
+    let runner = Arc::new(FakeRunner::new(Duration::ZERO));
+    let worker = start(source.clone(), runner, settings(1)).unwrap();
+    tokio::time::timeout(Duration::from_secs(1), source.entered.notified())
+        .await
+        .expect("worker should enter discovery");
+    tokio::time::timeout(Duration::from_secs(1), worker.shutdown())
+        .await
+        .expect("shutdown should interrupt discovery");
+}
+
+struct RepeatingSource {
+    panic_id: ExecutionId,
+    other_id: ExecutionId,
+    panic_candidate_returned: AtomicBool,
+}
+
+impl RunnableSource for RepeatingSource {
+    fn unsupported_operations<'a>(
+        &'a self,
+        _supported: &'a [OperationKey],
+        _failed_execution_policy: FailedExecutionPolicy,
+    ) -> WorkerFuture<'a, Result<Vec<OperationKey>, String>> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+
+    fn runnable_executions<'a>(
+        &'a self,
+        _supported: &'a [OperationKey],
+        _failed_execution_policy: FailedExecutionPolicy,
+        limit: u32,
+    ) -> WorkerFuture<'a, Result<Vec<RunnableExecution>, String>> {
+        Box::pin(async move {
+            let operation = OperationKey::new("fake", 1).unwrap();
+            let mut candidates = Vec::new();
+            if !self.panic_candidate_returned.swap(true, Ordering::SeqCst) {
+                candidates.push(candidate(self.panic_id, operation.clone()));
+            }
+            candidates.push(candidate(self.other_id, operation));
+            candidates.truncate(limit as usize);
+            Ok(candidates)
+        })
+    }
+}
+
+struct PanicOnceRunner {
+    panic_id: ExecutionId,
+    other_calls: AtomicUsize,
+}
+
+impl ExecutionRunner for PanicOnceRunner {
+    fn supported_operations(&self) -> WorkerFuture<'_, Vec<OperationKey>> {
+        Box::pin(async { vec![OperationKey::new("fake", 1).unwrap()] })
+    }
+
+    fn run(
+        &self,
+        id: ExecutionId,
+        _operation: OperationKey,
+    ) -> WorkerFuture<'_, Result<(), RunError>> {
+        Box::pin(async move {
+            if id == self.panic_id {
+                panic!("expected runner panic");
+            }
+            self.other_calls.fetch_add(1, Ordering::SeqCst);
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            Ok(())
+        })
+    }
+}
+
+#[tokio::test]
+async fn task_panic_only_clears_its_own_active_id() {
+    let panic_id = ExecutionId::new();
+    let other_id = ExecutionId::new();
+    let source = Arc::new(RepeatingSource {
+        panic_id,
+        other_id,
+        panic_candidate_returned: AtomicBool::new(false),
+    });
+    let runner = Arc::new(PanicOnceRunner {
+        panic_id,
+        other_calls: AtomicUsize::new(0),
+    });
+    let worker = start(source, runner.clone(), settings(2)).unwrap();
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while runner.other_calls.load(Ordering::SeqCst) == 0 {
+            tokio::task::yield_now().await;
+        }
+        tokio::time::sleep(Duration::from_millis(30)).await;
+    })
+    .await
+    .expect("worker should dispatch the unrelated execution");
+    assert_eq!(runner.other_calls.load(Ordering::SeqCst), 1);
+    worker.shutdown().await;
+}
 
 #[tokio::test]
 async fn worker_runs_fake_source_and_respects_capacity() {

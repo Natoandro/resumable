@@ -1,4 +1,9 @@
-use std::{collections::HashSet, future::Future, pin::Pin, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    future::Future,
+    pin::Pin,
+    sync::Arc,
+};
 
 use resumable::{ExecutionId, FailedExecutionPolicy, OperationKey, RunError};
 use tokio::{
@@ -89,63 +94,64 @@ async fn run(
     let mut poll = interval(settings.poll_interval);
     poll.set_missed_tick_behavior(MissedTickBehavior::Skip);
     let mut tasks: JoinSet<(ExecutionId, Result<(), RunError>)> = JoinSet::new();
+    let mut task_ids = HashMap::new();
     let mut active_ids = HashSet::new();
     let mut reported_unknown = HashSet::new();
     loop {
         tokio::select! {
             _ = &mut stopped => break,
             Some(result) = tasks.join_next(), if !tasks.is_empty() => {
-                if let Some(id) = report_result(result) {
-                    active_ids.remove(&id);
-                } else {
-                    active_ids.clear();
-                }
+                remove_completed_id(result, &mut task_ids, &mut active_ids);
             },
             _ = poll.tick() => {
                 while let Some(result) = tasks.try_join_next() {
-                    if let Some(id) = report_result(result) {
-                        active_ids.remove(&id);
-                    } else {
-                        active_ids.clear();
-                    }
+                    remove_completed_id(result, &mut task_ids, &mut active_ids);
                 }
                 let capacity = settings.concurrency.saturating_sub(tasks.len());
                 if capacity == 0 {
                     continue;
                 }
-                let supported = runner.supported_operations().await;
-                match source.unsupported_operations(&supported, settings.failed_execution_policy).await {
-                    Ok(unknown) => for key in unknown {
-                        if reported_unknown.insert(key.clone()) {
-                            tracing::warn!(operation = ?key, "runnable execution has no compatible handler");
+                let discovery = async {
+                    let supported = runner.supported_operations().await;
+                    match source.unsupported_operations(&supported, settings.failed_execution_policy).await {
+                        Ok(unknown) => for key in unknown {
+                            if reported_unknown.insert(key.clone()) {
+                                tracing::warn!(operation = ?key, "runnable execution has no compatible handler");
+                            }
+                        },
+                        Err(error) => tracing::error!(?error, "could not inspect unsupported resumable operations"),
+                    }
+                    match source.runnable_executions(&supported, settings.failed_execution_policy, capacity as u32).await {
+                        Ok(candidates) => for candidate in candidates {
+                            if !active_ids.insert(candidate.id) {
+                                continue;
+                            }
+                            tracing::info!(
+                                execution_id = %candidate.id,
+                                operation = ?candidate.operation,
+                                "resumable execution started"
+                            );
+                            let runner = runner.clone();
+                            let id = candidate.id;
+                            let task = tasks.spawn(async move {
+                                let result = runner.run(id, candidate.operation).await;
+                                (id, result)
+                            });
+                            task_ids.insert(task.id(), id);
                         }
-                    },
-                    Err(error) => tracing::error!(?error, "could not inspect unsupported resumable operations"),
-                }
-                match source.runnable_executions(&supported, settings.failed_execution_policy, capacity as u32).await {
-                    Ok(candidates) => for candidate in candidates {
-                        if !active_ids.insert(candidate.id) {
-                            continue;
-                        }
-                        tracing::info!(
-                            execution_id = %candidate.id,
-                            operation = ?candidate.operation,
-                            "resumable execution started"
-                        );
-                        let runner = runner.clone();
-                        tasks.spawn(async move {
-                            let result = runner.run(candidate.id, candidate.operation).await;
-                            (candidate.id, result)
-                        });
-                    },
-                    Err(error) => tracing::error!(?error, "resumable runnable discovery failed"),
+                        Err(error) => tracing::error!(?error, "resumable runnable discovery failed"),
+                    }
+                };
+                tokio::select! {
+                    _ = &mut stopped => break,
+                    _ = discovery => {}
                 }
             }
         }
     }
     let drain = async {
         while let Some(result) = tasks.join_next().await {
-            report_result(result);
+            remove_completed_id(result, &mut task_ids, &mut active_ids);
         }
     };
     if tokio::time::timeout(settings.shutdown_timeout, drain)
@@ -178,6 +184,20 @@ fn report_result(
             tracing::error!(?error, "resumable execution task panicked");
             None
         }
+    }
+}
+
+fn remove_completed_id(
+    result: Result<(ExecutionId, Result<(), RunError>), tokio::task::JoinError>,
+    task_ids: &mut HashMap<tokio::task::Id, ExecutionId>,
+    active_ids: &mut HashSet<ExecutionId>,
+) {
+    let failed_task_id = result.as_ref().err().map(tokio::task::JoinError::id);
+    let id = report_result(result)
+        .or_else(|| failed_task_id.and_then(|task| task_ids.get(&task).copied()));
+    if let Some(id) = id {
+        active_ids.remove(&id);
+        task_ids.retain(|_, execution_id| *execution_id != id);
     }
 }
 
