@@ -81,123 +81,198 @@ pub fn start(
         return None;
     }
     let (stop, stopped) = tokio::sync::oneshot::channel();
-    let join = tokio::spawn(run(source, runner, settings, stopped));
+    let worker = Worker::new(source, runner, settings);
+    let join = tokio::spawn(worker.run(stopped));
     Some(ResumableWorkerHandle { stop, join })
 }
 
-async fn run(
+struct Worker {
     source: Arc<dyn RunnableSource>,
     runner: Arc<dyn ExecutionRunner>,
     settings: WorkerSettings,
-    mut stopped: tokio::sync::oneshot::Receiver<()>,
-) {
-    let mut poll = interval(settings.poll_interval);
-    poll.set_missed_tick_behavior(MissedTickBehavior::Skip);
-    let mut tasks: JoinSet<(ExecutionId, Result<(), RunError>)> = JoinSet::new();
-    let mut task_ids = HashMap::new();
-    let mut active_ids = HashSet::new();
-    let mut reported_unknown = HashSet::new();
-    loop {
-        tokio::select! {
-            _ = &mut stopped => break,
-            Some(result) = tasks.join_next(), if !tasks.is_empty() => {
-                remove_completed_id(result, &mut task_ids, &mut active_ids);
-            },
-            _ = poll.tick() => {
-                while let Some(result) = tasks.try_join_next() {
-                    remove_completed_id(result, &mut task_ids, &mut active_ids);
-                }
-                let capacity = settings.concurrency.saturating_sub(tasks.len());
-                if capacity == 0 {
-                    continue;
-                }
-                let discovery = async {
-                    let supported = runner.supported_operations().await;
-                    match source.unsupported_operations(&supported, settings.failed_execution_policy).await {
-                        Ok(unknown) => for key in unknown {
-                            if reported_unknown.insert(key.clone()) {
-                                tracing::warn!(operation = ?key, "runnable execution has no compatible handler");
-                            }
-                        },
-                        Err(error) => tracing::error!(?error, "could not inspect unsupported resumable operations"),
+    tasks: ActiveTasks,
+    reported_unknown: HashSet<OperationKey>,
+}
+
+impl Worker {
+    fn new(
+        source: Arc<dyn RunnableSource>,
+        runner: Arc<dyn ExecutionRunner>,
+        settings: WorkerSettings,
+    ) -> Self {
+        Self {
+            source,
+            runner,
+            settings,
+            tasks: ActiveTasks::new(),
+            reported_unknown: HashSet::new(),
+        }
+    }
+
+    async fn run(mut self, mut stopped: tokio::sync::oneshot::Receiver<()>) {
+        let mut poll = interval(self.settings.poll_interval);
+        poll.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        loop {
+            tokio::select! {
+                _ = &mut stopped => break,
+                Some(result) = self.tasks.join_next(), if !self.tasks.is_empty() => self.tasks.reap(result),
+                _ = poll.tick() => {
+                    self.tasks.reap_ready();
+                    let capacity = self.settings.concurrency.saturating_sub(self.tasks.len());
+                    if capacity == 0 { continue; }
+                    tokio::select! {
+                        _ = &mut stopped => break,
+                        _ = self.discover_and_dispatch(capacity) => {}
                     }
-                    match source.runnable_executions(&supported, settings.failed_execution_policy, capacity as u32).await {
-                        Ok(candidates) => for candidate in candidates {
-                            if !active_ids.insert(candidate.id) {
-                                continue;
-                            }
-                            tracing::info!(
-                                execution_id = %candidate.id,
-                                operation = ?candidate.operation,
-                                "resumable execution started"
-                            );
-                            let runner = runner.clone();
-                            let id = candidate.id;
-                            let task = tasks.spawn(async move {
-                                let result = runner.run(id, candidate.operation).await;
-                                (id, result)
-                            });
-                            task_ids.insert(task.id(), id);
-                        }
-                        Err(error) => tracing::error!(?error, "resumable runnable discovery failed"),
-                    }
-                };
-                tokio::select! {
-                    _ = &mut stopped => break,
-                    _ = discovery => {}
                 }
             }
         }
+        self.drain().await;
     }
-    let drain = async {
-        while let Some(result) = tasks.join_next().await {
-            remove_completed_id(result, &mut task_ids, &mut active_ids);
+
+    async fn discover_and_dispatch(&mut self, capacity: usize) {
+        let supported = self.runner.supported_operations().await;
+        match self
+            .source
+            .unsupported_operations(&supported, self.settings.failed_execution_policy)
+            .await
+        {
+            Ok(unknown) => {
+                for key in unknown {
+                    if self.reported_unknown.insert(key.clone()) {
+                        tracing::warn!(operation = ?key, "runnable execution has no compatible handler");
+                    }
+                }
+            }
+            Err(error) => {
+                tracing::error!(?error, "could not inspect unsupported resumable operations")
+            }
         }
-    };
-    if tokio::time::timeout(settings.shutdown_timeout, drain)
-        .await
-        .is_err()
-    {
-        tracing::warn!("resumable worker shutdown deadline elapsed; leaving leases to expire");
-        tasks.abort_all();
-        while tasks.join_next().await.is_some() {}
+        match self
+            .source
+            .runnable_executions(
+                &supported,
+                self.settings.failed_execution_policy,
+                capacity as u32,
+            )
+            .await
+        {
+            Ok(candidates) => {
+                for candidate in candidates {
+                    self.tasks.dispatch(self.runner.clone(), candidate);
+                }
+            }
+            Err(error) => tracing::error!(?error, "resumable runnable discovery failed"),
+        }
+    }
+
+    async fn drain(&mut self) {
+        let drain = async {
+            while let Some(result) = self.tasks.join_next().await {
+                self.tasks.reap(result);
+            }
+        };
+        if tokio::time::timeout(self.settings.shutdown_timeout, drain)
+            .await
+            .is_err()
+        {
+            tracing::warn!("resumable worker shutdown deadline elapsed; leaving leases to expire");
+            self.tasks.abort_all();
+            while let Some(result) = self.tasks.join_next().await {
+                self.tasks.reap(result);
+            }
+        }
     }
 }
 
-fn report_result(
-    result: Result<(ExecutionId, Result<(), RunError>), tokio::task::JoinError>,
-) -> Option<ExecutionId> {
+struct ActiveTasks {
+    tasks: JoinSet<Result<(), RunError>>,
+    task_ids: HashMap<tokio::task::Id, ExecutionId>,
+    active_ids: HashSet<ExecutionId>,
+}
+
+impl ActiveTasks {
+    fn new() -> Self {
+        Self {
+            tasks: JoinSet::new(),
+            task_ids: HashMap::new(),
+            active_ids: HashSet::new(),
+        }
+    }
+    fn len(&self) -> usize {
+        self.tasks.len()
+    }
+    fn is_empty(&self) -> bool {
+        self.tasks.is_empty()
+    }
+
+    fn dispatch(&mut self, runner: Arc<dyn ExecutionRunner>, candidate: RunnableExecution) {
+        if !self.active_ids.insert(candidate.id) {
+            return;
+        }
+        let id = candidate.id;
+        tracing::info!(execution_id = %id, operation = ?candidate.operation, "resumable execution started");
+        let task = self
+            .tasks
+            .spawn(async move { runner.run(id, candidate.operation).await });
+        self.task_ids.insert(task.id(), id);
+    }
+
+    fn reap_ready(&mut self) {
+        while let Some(result) = self.tasks.try_join_next_with_id() {
+            self.reap(result);
+        }
+    }
+
+    fn reap(
+        &mut self,
+        result: Result<(tokio::task::Id, Result<(), RunError>), tokio::task::JoinError>,
+    ) {
+        let task_id = match &result {
+            Ok((id, _)) => *id,
+            Err(error) => error.id(),
+        };
+        let execution_id = self.task_ids.remove(&task_id);
+        match result {
+            Ok((_, result)) => report_result(execution_id, result),
+            Err(error) => {
+                if error.is_cancelled() {
+                    tracing::debug!(execution_id = ?execution_id, "resumable execution task was cancelled");
+                } else {
+                    tracing::error!(?error, execution_id = ?execution_id, "resumable execution task panicked");
+                }
+            }
+        }
+        if let Some(id) = execution_id {
+            self.active_ids.remove(&id);
+        }
+    }
+
+    async fn join_next(
+        &mut self,
+    ) -> Option<Result<(tokio::task::Id, Result<(), RunError>), tokio::task::JoinError>> {
+        self.tasks.join_next_with_id().await
+    }
+    fn abort_all(&mut self) {
+        self.tasks.abort_all();
+    }
+}
+
+fn report_result(id: Option<ExecutionId>, result: Result<(), RunError>) {
+    let Some(id) = id else {
+        tracing::error!("resumable task completed without active task mapping");
+        return;
+    };
     match result {
-        Ok((id, Ok(()))) => {
+        Ok(()) => {
             tracing::info!(execution_id = %id, "resumable execution completed");
-            Some(id)
         }
-        Ok((id, Err(RunError::Busy))) => {
+        Err(RunError::Busy) => {
             tracing::debug!(execution_id = %id, "resumable execution is owned by another worker");
-            Some(id)
-        }
-        Ok((id, Err(error))) => {
-            tracing::error!(execution_id = %id, ?error, "resumable execution failed");
-            Some(id)
         }
         Err(error) => {
-            tracing::error!(?error, "resumable execution task panicked");
-            None
+            tracing::error!(execution_id = %id, ?error, "resumable execution failed");
         }
-    }
-}
-
-fn remove_completed_id(
-    result: Result<(ExecutionId, Result<(), RunError>), tokio::task::JoinError>,
-    task_ids: &mut HashMap<tokio::task::Id, ExecutionId>,
-    active_ids: &mut HashSet<ExecutionId>,
-) {
-    let failed_task_id = result.as_ref().err().map(tokio::task::JoinError::id);
-    let id = report_result(result)
-        .or_else(|| failed_task_id.and_then(|task| task_ids.get(&task).copied()));
-    if let Some(id) = id {
-        active_ids.remove(&id);
-        task_ids.retain(|_, execution_id| *execution_id != id);
     }
 }
 

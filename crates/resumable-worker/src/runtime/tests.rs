@@ -169,6 +169,39 @@ async fn worker_ignores_duplicate_active_candidate_ids() {
     assert_eq!(runner.calls.load(Ordering::SeqCst), 1);
 }
 
+struct SameCandidateSource(RunnableExecution);
+
+impl RunnableSource for SameCandidateSource {
+    fn unsupported_operations<'a>(
+        &'a self,
+        _supported: &'a [OperationKey],
+        _failed_execution_policy: FailedExecutionPolicy,
+    ) -> WorkerFuture<'a, Result<Vec<OperationKey>, String>> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+
+    fn runnable_executions<'a>(
+        &'a self,
+        _supported: &'a [OperationKey],
+        _failed_execution_policy: FailedExecutionPolicy,
+        _limit: u32,
+    ) -> WorkerFuture<'a, Result<Vec<RunnableExecution>, String>> {
+        Box::pin(async move { Ok(vec![self.0.clone()]) })
+    }
+}
+
+#[tokio::test]
+async fn successful_completion_allows_same_id_to_be_dispatched_again() {
+    let id = ExecutionId::new();
+    let operation = OperationKey::new("fake", 1).unwrap();
+    let source = Arc::new(SameCandidateSource(candidate(id, operation)));
+    let runner = Arc::new(FakeRunner::new(Duration::from_millis(1)));
+    let worker = start(source, runner.clone(), settings(1)).unwrap();
+    wait_for_calls(&runner, 2).await;
+    worker.shutdown().await;
+    assert!(runner.calls.load(Ordering::SeqCst) >= 2);
+}
+
 #[tokio::test]
 async fn disabled_worker_does_not_start() {
     let source = Arc::new(FakeSource::new([]));
